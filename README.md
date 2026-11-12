@@ -809,7 +809,7 @@ were applied.
 > - TPMS: **Abarth 124 Spider / Shenzhen EGQ Q85**, **BMW Gen4/Gen5 and Audi
 >   Pressure Alert**, **BMW Gen2/Gen3**, **Airpuxem TYH11_EU6_ZQ**, **AVE**, **Citroen**, **EezTire E618 / Carchet / TST-507**,
 >   **Elantra2012**, **Ford**, **Gear Hive**, **GM-Aftermarket**, **Honda TRW**,
->   **Jansite Solar**, **Jeep**, **Nissan**, **Renault**, **Schrader
+>   **Jansite Solar**, **Jeep**, **Nissan**, **PMV-107J**, **Renault**, **Schrader
 >   Motorcycle**, **Sefis M3 / Careud / Sykik SRTP300**, **Toyota**, **TRW (OOK
 >   and FSK)**, **TyreGuard 400**, **Unbranded SolarTPMS for trucks**
 >
