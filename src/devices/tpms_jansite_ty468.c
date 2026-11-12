@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /**
 Jansite TPMS TY-468-eu2 / KKMOON TPMS.
@@ -126,6 +129,78 @@ static int tpms_jansite_ty468_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of tpms_jansite_ty468_decode().
+
+    "code" (B0..B6) is applied if edited; B7 is set to B0 and B1's low
+    nibble follows B0. If B3 + B4 is not a known checksum constant then B4
+    is adjusted to keep the original unit's constant. A temperature change
+    is applied via B2 and a pressure change via B6, leaving B5 untouched.
+*/
+static int tpms_jansite_ty468_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[3] = {0xaa, 0xaa, 0xaa};
+
+    if (cap->bits.num_rows != 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+
+    unsigned pos = bitbuffer_search(&bits, 0, 0, preamble_pattern, 24);
+    if (pos + 160 > bits.bits_per_row[0])
+        return -1;
+
+    bitbuffer_t packet = {0};
+    bitbuffer_manchester_decode(&bits, 0, pos + 32, &packet, 64);
+    bitbuffer_invert(&packet);
+    if (packet.bits_per_row[0] < 64)
+        return -1;
+    uint8_t b[8];
+    memcpy(b, packet.bb[0], 8);
+
+    int orig_sum = (b[3] + b[4]) & 0xff;
+    if (orig_sum != 0xfb && orig_sum != 0x64)
+        return -1;
+    int orig_temp = (orig_sum == 0xfb ? 224 : 153) - ((b[2] + b[5]) & 0xff);
+    int orig_pres = (orig_sum == 0xfb ? 273 : 201) - ((b[5] + b[6]) & 0xff);
+
+    char code_str[7 * 2 + 1];
+    snprintf(code_str, sizeof(code_str), "%02x%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6]);
+    char const *f = capture_get_field(cap, "code");
+    if (f && strlen(f) == 14 && strcmp(f, code_str)) {
+        for (int i = 0; i < 7; i++) {
+            char h[3] = {f[2 * i], f[2 * i + 1], 0};
+            b[i]      = (uint8_t)strtoul(h, NULL, 16);
+        }
+    }
+    b[1]    = (uint8_t)((b[1] & 0xf0) | (b[0] & 0x0f));
+    int sum = (b[3] + b[4]) & 0xff;
+    if (sum != 0xfb && sum != 0x64) {
+        b[4] = (uint8_t)(orig_sum - b[3]);
+        sum  = orig_sum;
+    }
+    int temp_offset     = sum == 0xfb ? 224 : 153;
+    int pressure_offset = sum == 0xfb ? 273 : 201;
+
+    double d;
+    if (encoder_field_dbl(cap, "temperature_C", &d) && lround(d) != orig_temp)
+        b[2] = (uint8_t)(temp_offset - lround(d) - b[5]);
+    if (encoder_field_dbl(cap, "pressure_kPa", &d) && fabs(d - orig_pres * 2.5) > 1e-3) {
+        long p = lround(d / 2.5);
+        p      = p < pressure_offset - 255 ? pressure_offset - 255 : p > pressure_offset ? pressure_offset : p;
+        b[6]   = (uint8_t)(pressure_offset - p - b[5]);
+    }
+    b[7] = b[0];
+
+    encoder_manchester_encode(bits.bb[0], pos + 32, b, 64, 1);
+
+    encoder_set_dbl(cap, "temperature_C", temp_offset - ((b[2] + b[5]) & 0xff));
+    encoder_set_dbl(cap, "pressure_kPa", (pressure_offset - ((b[5] + b[6]) & 0xff)) * 2.5);
+    snprintf(code_str, sizeof(code_str), "%02x%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6]);
+    capture_set_field(cap, "code", code_str);
+
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -143,5 +218,6 @@ r_device const tpms_jansite_ty468 = {
         .long_width  = 50,
         .reset_limit = 200,
         .decode_fn   = &tpms_jansite_ty468_decode,
+        .encode_fn   = &tpms_jansite_ty468_encode,
         .fields      = output_fields,
 };
