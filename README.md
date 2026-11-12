@@ -1,4 +1,9 @@
-# rtl_433
+# rtl_433_tx
+
+rtl_433_tx is a fork of [rtl_433](https://github.com/merbanan/rtl_433/) that
+adds recording, editing and re-transmitting of captured signals (see
+[Recording, editing and re-transmitting](#recording-editing-and-re-transmitting)).
+Its binary installs as `rtl_433_tx`.
 
 rtl_433 (despite the name) is a generic data receiver, mainly for the 433.92 MHz, 868 MHz (SRD), 315 MHz, 345 MHz, and 915 MHz ISM bands.
 
@@ -691,7 +696,7 @@ Some examples:
 
 | Command | Description
 |---------|------------
-| `rtl_433` | Default receive mode, use the first device found, listen at 433.92 MHz at 250k sample rate.
+| `rtl_433_tx` | Default receive mode, use the first device found, listen at 433.92 MHz at 250k sample rate.
 | `rtl_433_tx -C si` | Default receive mode, also convert units to metric system.
 | `rtl_433_tx -f 868M -s 1024k` | Listen at 868 MHz and 1024k sample rate.
 | `rtl_433_tx -M hires -M level` | Report microsecond accurate timestamps and add reception levels (depending on gain).
