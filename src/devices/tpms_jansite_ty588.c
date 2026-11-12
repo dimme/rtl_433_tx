@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /**
 Jansite TPMS TY588-EU2.
@@ -128,6 +131,76 @@ static int tpms_jansite_ty588_callback(r_device *decoder, bitbuffer_t *bitbuffer
     return events > 0 ? events : ret;
 }
 
+/** Encoder: inverse of tpms_jansite_ty588_decode().
+
+    "code" (7 raw bytes) is applied if edited. A temperature change is
+    applied via B2 and a pressure change via B6, leaving B5 (and thus the
+    other value) untouched. B7 is always set to B0.
+*/
+static int tpms_jansite_ty588_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[3] = {0x99, 0xaa, 0x5a};
+
+    if (cap->bits.num_rows < 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+
+    int patched = 0;
+    uint8_t b[8];
+    unsigned bitpos = 0;
+    while ((bitpos = bitbuffer_search(&bits, 0, bitpos, preamble_pattern, 24)) + 172 <= bits.bits_per_row[0]) {
+        bitbuffer_t packet = {0};
+        bitbuffer_manchester_decode(&bits, 0, bitpos + 44, &packet, 64);
+        uint8_t *o = packet.bb[0];
+        if (packet.bits_per_row[0] < 64 || o[7] != o[0]
+                || ((o[3] + o[4]) & 0xff) != 0x30 || (o[0] & 0x0f) != (o[1] & 0x0f)) {
+            bitpos += 2;
+            continue;
+        }
+        memcpy(b, o, 8);
+        int orig_temp = ((o[2] + o[5]) & 0xff) - 139;
+        int orig_pres = ((o[5] + o[6]) & 0xff) - 90;
+
+        char code_str[7 * 2 + 1];
+        snprintf(code_str, sizeof(code_str), "%02x%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6]);
+        char const *f = capture_get_field(cap, "code");
+        if (f && strlen(f) == 14 && strcmp(f, code_str)) {
+            for (int i = 0; i < 7; i++) {
+                char h[3] = {f[2 * i], f[2 * i + 1], 0};
+                b[i]      = (uint8_t)strtoul(h, NULL, 16);
+            }
+        }
+
+        double d;
+        if (encoder_field_dbl(cap, "temperature_C", &d) && lround(d) != orig_temp) {
+            long t = lround(d);
+            t      = t < -40 ? -40 : t > 116 ? 116 : t;
+            b[2]   = (uint8_t)(t + 139 - b[5]);
+        }
+        if (encoder_field_dbl(cap, "pressure_kPa", &d) && fabs(d - orig_pres * 2.5) > 1e-3) {
+            long p = lround(d / 2.5);
+            p      = p < 0 ? 0 : p > 165 ? 165 : p;
+            b[6]   = (uint8_t)(p + 90 - b[5]);
+        }
+        b[7] = b[0];
+
+        encoder_manchester_encode(bits.bb[0], bitpos + 44, b, 64, 0);
+        patched++;
+        bitpos += 172;
+    }
+    if (!patched)
+        return -1;
+
+    encoder_set_dbl(cap, "pressure_kPa", (((b[5] + b[6]) & 0xff) - 90) * 2.5);
+    encoder_set_dbl(cap, "temperature_C", ((b[2] + b[5]) & 0xff) - 139.0);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02x%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6]);
+    capture_set_field(cap, "code", buf);
+
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -145,5 +218,6 @@ r_device const tpms_jansite_ty588 = {
         .long_width  = 51,
         .reset_limit = 5000,
         .decode_fn   = &tpms_jansite_ty588_callback,
+        .encode_fn   = &tpms_jansite_ty588_encode,
         .fields      = output_fields,
 };
