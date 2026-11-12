@@ -811,7 +811,7 @@ were applied.
 >   **Elantra2012**, **Ford**, **Gear Hive**, **GM-Aftermarket**, **Honda TRW**, **Hyundai VDO**, **iMars T240** (`code` only),
 >   **Jansite Solar**, **Jansite TY02S** (checksum unknown, kept unless `code` is edited),
 >   **Jansite TY-468-eu2 / KKMOON**, **Jansite TY588-EU2**, **Jeep**, **Kia Rio III**, **Nissan**, **PMV-107J**, **Porsche Boxster/Cayman**, **Renault**, **Renault 0435R**, **Schrader
->   Motorcycle**, **Sefis M3 / Careud / Sykik SRTP300**, **Toyota**, **TRW (OOK
+>   Motorcycle**, **Sefis M3 / Careud / Sykik SRTP300**, **SmarTire Vantage / Aston Martin DB9**, **Toyota**, **TRW (OOK
 >   and FSK)**, **TyreGuard 400**, **Unbranded SolarTPMS for trucks**
 >
 > All other devices fall back to generic raw-bit replay. Values are quantized
