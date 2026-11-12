@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /**
 FSK 9 byte Manchester encoded TPMS with CRC.
@@ -107,6 +110,88 @@ static int tpms_renault_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return events > 0 ? events : ret;
 }
 
+/** Encoder: inverse of tpms_renault_decode().
+
+    Patches flags, pressure, temperature and id in every packet, keeps the
+    unknown bytes, recomputes the CRC-8 and re-encodes the Manchester payload.
+*/
+static int tpms_renault_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[2] = {0xaa, 0xa9};
+
+    bitbuffer_t bits = cap->bits;
+    bitbuffer_invert(&bits);
+
+    char const *f;
+    double d;
+    int have_id = 0, have_flags = 0, have_t = 0, have_p = 0;
+    unsigned id = 0, flags = 0, press = 0;
+    uint8_t temp = 0;
+    if ((f = capture_get_field(cap, "id"))) {
+        id      = (unsigned)strtoul(f, NULL, 16) & 0xffffff;
+        have_id = 1;
+    }
+    if ((f = capture_get_field(cap, "flags"))) {
+        flags      = (unsigned)strtoul(f, NULL, 16) & 0x3f;
+        have_flags = 1;
+        char flags_str[3];
+        snprintf(flags_str, sizeof(flags_str), "%02x", flags);
+        capture_set_field(cap, "flags", flags_str);
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d) + 30;
+        temp   = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+        have_t = 1;
+        encoder_set_dbl(cap, "temperature_C", temp - 30.0);
+    }
+    if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+        long p = lround(d / 0.75);
+        press  = (unsigned)(p < 0 ? 0 : p > 0x3ff ? 0x3ff : p);
+        have_p = 1;
+        encoder_set_dbl(cap, "pressure_kPa", press * 0.75);
+    }
+
+    int patched = 0;
+    for (int row = 0; row < bits.num_rows; ++row) {
+        unsigned bitpos = 0;
+        while ((bitpos = bitbuffer_search(&bits, row, bitpos, preamble_pattern, 16)) + 160 <= bits.bits_per_row[row]) {
+            bitbuffer_t packet = {0};
+            bitbuffer_manchester_decode(&bits, row, bitpos + 16, &packet, 72);
+            uint8_t *p = packet.bb[0];
+            if (packet.bits_per_row[0] >= 72 && crc8(p, 8, 0x07, 0x00) == p[8]) {
+                uint8_t b[9];
+                memcpy(b, p, 9);
+                if (have_flags)
+                    b[0] = (uint8_t)(flags << 2 | (b[0] & 0x03));
+                if (have_p) {
+                    b[0] = (uint8_t)((b[0] & 0xfc) | press >> 8);
+                    b[1] = (uint8_t)press;
+                }
+                if (have_t)
+                    b[2] = temp;
+                if (have_id) {
+                    b[3] = (uint8_t)id;
+                    b[4] = (uint8_t)(id >> 8);
+                    b[5] = (uint8_t)(id >> 16);
+                }
+                b[8] = crc8(b, 8, 0x07, 0x00);
+                encoder_manchester_encode(bits.bb[row], bitpos + 16, b, 72, 0);
+                patched++;
+                bitpos += 16 + 144;
+            }
+            else {
+                bitpos += 15;
+            }
+        }
+    }
+    if (!patched)
+        return -1;
+
+    bitbuffer_invert(&bits);
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -125,5 +210,6 @@ r_device const tpms_renault = {
         .long_width  = 52,  // FSK
         .reset_limit = 150, // Maximum gap size before End Of Message [us].
         .decode_fn   = &tpms_renault_callback,
+        .encode_fn   = &tpms_renault_encode,
         .fields      = output_fields,
 };
