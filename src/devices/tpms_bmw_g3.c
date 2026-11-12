@@ -48,6 +48,9 @@ Data layout {81} 10 x 8 (Gen2):
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 static int tpms_bmwg3_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -138,6 +141,84 @@ static int tpms_bmwg3_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of tpms_bmwg3_decode().
+
+    Keeps the Gen2/Gen3 length, patches id (from "uid" or "id", whichever
+    was edited), pressure, temperature and flags, recomputes the CRC-16 and
+    re-encodes the differential Manchester payload in place.
+*/
+static int tpms_bmwg3_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[] = {0xcc, 0xcd};
+
+    if (cap->bits.num_rows != 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+    unsigned start   = bitbuffer_search(&bits, 0, 0, preamble_pattern, 16);
+    if (start >= bits.bits_per_row[0])
+        return -1;
+    start += 16;
+
+    bitbuffer_t decoded = {0};
+    bitbuffer_differential_manchester_decode(&bits, 0, start, &decoded, 88);
+    int msg_len = decoded.bits_per_row[0];
+    if (msg_len < 80)
+        return -1;
+    int is_gen2 = msg_len < 88;
+    int nbytes  = 11 - is_gen2;
+    uint8_t b[11];
+    memcpy(b, decoded.bb[0], nbytes);
+
+    uint32_t orig_id = ((uint32_t)b[0] << 24) | (b[1] << 16) | (b[2] << 8) | (b[3]);
+    uint32_t id      = orig_id;
+    char const *f;
+    int v;
+    double d;
+    if ((f = capture_get_field(cap, "uid")) && (uint32_t)strtoul(f, NULL, 10) != orig_id)
+        id = (uint32_t)strtoul(f, NULL, 10);
+    else if ((f = capture_get_field(cap, "id")))
+        id = (uint32_t)strtoll(f, NULL, 10);
+    b[0] = (uint8_t)(id >> 24);
+    b[1] = (uint8_t)(id >> 16);
+    b[2] = (uint8_t)(id >> 8);
+    b[3] = (uint8_t)id;
+
+    if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+        long p = lround(d / 2.5) + 43;
+        b[4]   = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+        encoder_set_dbl(cap, "pressure_kPa", (double)((b[4] - 43) * 2.5f));
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d) + 40;
+        b[5]   = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+        encoder_set_dbl(cap, "temperature_C", b[5] - 40.0);
+    }
+    if (encoder_field_int(cap, "flags1", &v))
+        b[6] = (uint8_t)v;
+    if (encoder_field_int(cap, "flags2", &v))
+        b[7] = (uint8_t)v;
+    if (!is_gen2 && encoder_field_int(cap, "flags3", &v))
+        b[8] = (uint8_t)v;
+    uint16_t crc   = crc16(b, nbytes - 2, 0x1021, 0x0000);
+    b[nbytes - 2] = (uint8_t)(crc >> 8);
+    b[nbytes - 1] = (uint8_t)crc;
+
+    int prev = bitrow_get_bit(bits.bb[0], start - 1);
+    encoder_diff_manchester_encode(bits.bb[0], start, &prev, b, nbytes * 8);
+
+    char buf[23];
+    snprintf(buf, sizeof(buf), "%d", (int)id);
+    capture_set_field(cap, "id", buf);
+    snprintf(buf, sizeof(buf), "%u", id);
+    capture_set_field(cap, "uid", buf);
+    for (int i = 0; i < nbytes; i++)
+        snprintf(buf + 2 * i, 3, "%02x", b[i]);
+    capture_set_field(cap, "msg", buf);
+
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -160,5 +241,6 @@ r_device const tpms_bmwg3 = {
         .long_width  = 52,
         .reset_limit = 160,
         .decode_fn   = &tpms_bmwg3_decode,
+        .encode_fn   = &tpms_bmwg3_encode,
         .fields      = output_fields,
 };
