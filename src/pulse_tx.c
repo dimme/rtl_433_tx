@@ -215,7 +215,14 @@ int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
     if (pulses->num_pulses == 0)
         return -1;
     // ensure a trailing reset gap so the receiver ends the message
-    pulses->gap[pulses->num_pulses - 1] += reset_gap;
+    if (mod >= FSK_DEMOD_MIN_VAL) {
+        // The final gap is rendered as silence, but for FSK any trailing data
+        // zeros must stay on the space tone: carry the reset in its own entry.
+        pd_append(pulses, 0, reset_gap);
+    }
+    else {
+        pulses->gap[pulses->num_pulses - 1] += reset_gap;
+    }
     return 0;
 }
 
