@@ -34,11 +34,11 @@ For RTL-SDR use the `-d` option as:
   [-d :<RTL-SDR USB device serial (can be set with rtl_eeprom -s)>]
 ```
 
-If RTL-SDR support is compiled in (see the first line of `rtl_433 -V`) the default input will be the first available RTL-SDR device.
-This can also explicitly be selected with `rtl_433 -d 0`. Use e.g. `rtl_433 -d 1` to select the second device.
+If RTL-SDR support is compiled in (see the first line of `rtl_433_tx -V`) the default input will be the first available RTL-SDR device.
+This can also explicitly be selected with `rtl_433_tx -d 0`. Use e.g. `rtl_433_tx -d 1` to select the second device.
 
 If you have set a serial number on your device you can use that number prefixed with a colon to select a device,
-e.g. `rtl_433 -d :NESDRSMA`.
+e.g. `rtl_433_tx -d :NESDRSMA`.
 
 The sample format read from RTL-SDR is always `CU8`.
 
@@ -51,10 +51,10 @@ For SoapySDR use the `-d` option as:
   [-d driver=rtlsdr] Open e.g. specific SoapySDR device
 ```
 
-If SoapySDR support is compiled in (see the first line of `rtl_433 -V`) and RTL-SDR is not then the default input will be the first available SoapySDR device.
-This can also explicitly be selected with `rtl_433 -d ""`.
+If SoapySDR support is compiled in (see the first line of `rtl_433_tx -V`) and RTL-SDR is not then the default input will be the first available SoapySDR device.
+This can also explicitly be selected with `rtl_433_tx -d ""`.
 
-Otherwise specify a driver string to select the SoapySDR device. Use e.g. `rtl_433 -d "driver=rtlsdr"` to use RTL-SDR over Soapy.
+Otherwise specify a driver string to select the SoapySDR device. Use e.g. `rtl_433_tx -d "driver=rtlsdr"` to use RTL-SDR over Soapy.
 
 Usual SoapySDR driver string are e.g. `"driver=remote,remote=tcp://192.168.2.1:55132"`, `"driver=plutosdr"`, etc.
 
@@ -72,7 +72,7 @@ For rtl_tcp use the `-d` option as:
 
 The rtl_tcp input is always available. The default host is "localhost" and default port is "1234".
 
-Use e.g. `rtl_433 -d rtl_tcp:192.168.2.1` or `rtl_433 -d rtl_tcp:192.168.2.1:2143` to select a specific source.
+Use e.g. `rtl_433_tx -d rtl_tcp:192.168.2.1` or `rtl_433_tx -d rtl_tcp:192.168.2.1:2143` to select a specific source.
 
 ### Input Gain
 
@@ -164,7 +164,7 @@ Decoders can be selected with the `-R` and `-X` option:
 By default all decoders with proper validity checking are enabled.
 
 You can disable selected decoders with any number of `-R -<number>` options.
-E.g. use `rtl_433 -R -8 -19` to disable the LaCrosse and Nexus decoders.
+E.g. use `rtl_433_tx -R -8 -19` to disable the LaCrosse and Nexus decoders.
 
 Some decoders have little validity checking and may share very common signal characteristics.
 This will result in lots of false-positive decodes.
@@ -172,21 +172,21 @@ These decoders are not enabled by default and you need to explicitly enable them
 
 You can enable only selected decoders with any number of `-R <number>` options.
 Note that this will override the default and not select any decoder by default.
-E.g. use `rtl_433 -R 8 19` to enable only the LaCrosse and Nexus decoders.
+E.g. use `rtl_433_tx -R 8 19` to enable only the LaCrosse and Nexus decoders.
 
 To enable a default-disabled protocol while keeping all the other defaults enabled,
-exclude then include the same protocol number: `rtl_433 -R -N -R N`.
+exclude then include the same protocol number: `rtl_433_tx -R -N -R N`.
 The first option, `-R -N`, initializes the default set (a negative number as the
 first `-R` option loads the defaults before excluding `N`, instead of overriding
 them); the second option, `-R N`, then adds protocol `N` back on top of that set.
-E.g. use `rtl_433 -R -216 -R 216` to enable all default decoders plus the
+E.g. use `rtl_433_tx -R -216 -R 216` to enable all default decoders plus the
 ANT and ANT+ decoder (216), which is disabled by default.
 
 An output line of `Registered <n> out of <N> device decoding protocols` will tersely show the enabled decoders.
 
 Lastly the `-X` option can be used to add a custom flex decoder.
 This can be used with `-R 0` to disable all default decoders.
-E.g. `rtl_433 -R 0 -X "<spec>"` will only run your given custom decoder.
+E.g. `rtl_433_tx -R 0 -X "<spec>"` will only run your given custom decoder.
 
 ## Flex Decoder
 
@@ -307,7 +307,7 @@ E.g. a two (or dominant count) pulse widths with a sinle gap widths or single pe
 Disable all decoders with `-R 0` if you want to view the analyzer output only.
 
 The `-S` option allows you to dump received transmissions for further analysis.
-Use e.g. `rtl_433 -S all` to dump all signals or `rtl_433 -S unknown` to dump only signals with no successful decodes (by enabled decoders).
+Use e.g. `rtl_433_tx -S all` to dump all signals or `rtl_433_tx -S unknown` to dump only signals with no successful decodes (by enabled decoders).
 
 On file will be created per signal, see also "File names".
 Note: Saves raw I/Q samples `CU8` (uint8 pcm, 2 channel) for RTL-SDR and `CS16` (int16 pcm, 2 channel) for SoapySDR.
@@ -352,7 +352,7 @@ File content and format options are:
 `am.s16`, `am.f32`, `fm.s16`, `fm.f32`,
 `i.f32`, `q.f32`, `logic.u8`, `ook`, and `vcd`.
 
-For example you can dump the live decoded pulse data to stdout with `rtl_433 -w OOK:-`.
+For example you can dump the live decoded pulse data to stdout with `rtl_433_tx -w OOK:-`.
 
 ### Load bitbuffer code
 
@@ -504,7 +504,7 @@ A UDP output of JSON messages with Syslog compatible header data.
 
 E.g. a UDP text payload of
 ```
-<165>1 2019-08-29T06:38:19Z raspi.fritz.box rtl_433 - - - {"time":"2019-08-29 08:38:19","model":"Nexus-TH","id":42,"channel":2,"battery_ok":1,"temperature_C":20.5,"humidity":83}
+<165>1 2019-08-29T06:38:19Z raspi.fritz.box rtl_433_tx - - - {"time":"2019-08-29 08:38:19","model":"Nexus-TH","id":42,"channel":2,"battery_ok":1,"temperature_C":20.5,"humidity":83}
 ```
 See also [RFC 5424 - The Syslog Protocol](https://tools.ietf.org/html/rfc5424#page-8)
 
@@ -579,7 +579,7 @@ You can grab the decoded output from rtl_433 in various ways, then process and r
 The simplest (but not very flexible or stable) way is to use pipes.
 E.g. capture the decode JSON messages and relay the to MQTT with
 
-`rtl_433 -F json -M utc | mosquitto_pub -t home/rtl_433 -l`
+`rtl_433_tx -F json -M utc | mosquitto_pub -t home/rtl_433_tx -l`
 
 See also
 [rtl_433_collectd_pipe.py](https://github.com/merbanan/rtl_433/blob/master/examples/rtl_433_collectd_pipe.py), and

@@ -47,8 +47,8 @@ Most receivers only sample with 12-bit per channel, using `.cs12` will be more c
 
 The rtl_433 program supports most of these formats and allows to read, write, or convert them, e.g.:
 
-- `rtl_433 -w FILE.cu8`: write received data to sample file
-- `rtl_433 -w FILE.cu8 FILE.cs16`: convert sample file
+- `rtl_433_tx -w FILE.cu8`: write received data to sample file
+- `rtl_433_tx -w FILE.cu8 FILE.cs16`: convert sample file
 
 ## Pulse data formats
 
@@ -74,8 +74,8 @@ Install SigRok Pulseview and write a SigRok file. The overwrite option (uppercas
 
 The rtl_433 program can create all these formats from live data or sample files, e.g.:
 
-- `rtl_433 -w FILE.ook`: write received data to ook file
-- `rtl_433 -w FILE.ook FILE.cu8`: convert sample file to ook file
+- `rtl_433_tx -w FILE.ook`: write received data to ook file
+- `rtl_433_tx -w FILE.ook FILE.cu8`: convert sample file to ook file
 
 ## File name meta data
 

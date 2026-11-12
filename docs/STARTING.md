@@ -63,7 +63,7 @@ When running multiple instances of `rtl_433` be sure to use a distinct input for
 :::
 
 Choose a file input using `-r` e.g. `-r g001_433.92M_250k.cu8`
-If you list files to read as last options then you can omit the `-r` e.g. `rtl_433 g001_433.92M_250k.cu8`
+If you list files to read as last options then you can omit the `-r` e.g. `rtl_433_tx g001_433.92M_250k.cu8`
 
 If you are testing a decoder you can list a demodulated bit pattern as input using the `-y` option, e.g. `-y "{25}fb2dd58"`
 

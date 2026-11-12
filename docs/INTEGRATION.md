@@ -16,7 +16,7 @@ Some help comes from https://community.openhab.org/t/rtl-433-to-mqtt/80652/3
 
 Run
 
-    rtl_433 -F "mqtt://192.168.178.42:1883,retain=0,devices=sensors/rtl_433/P[protocol]/C[channel]"
+    rtl_433_tx -F "mqtt://192.168.178.42:1883,retain=0,devices=sensors/rtl_433/P[protocol]/C[channel]"
 
 This produces some topics in the broker like this:
 
@@ -55,7 +55,7 @@ Home Assistant has good MQTT support and can read rtl_433 event topics.
 
 Assuming rtl_433 is started with
 
-    rtl_433 -C si -M time:unix:usec:utc -F mqtt
+    rtl_433_tx -C si -M time:unix:usec:utc -F mqtt
 
 you can set up temperature and humidity sensors in Home Assistant with
 
@@ -126,13 +126,13 @@ Some example pipes/relays for rtl_433 JSON data. Should work with Python 2 and a
 
 The `pipe` examples read JSON output from `rtl_433` using a pipe, i.e.
 
-    rtl_433 -F json ... | rtl_433_statsd_pipe.py
+    rtl_433_tx -F json ... | rtl_433_statsd_pipe.py
 
 The `relay` examples consumes the (UDP) Syslog output from rtl_433 (or a legacy plain JSON datagram).
 Basically run `rtl_433` with `-F syslog:127.0.0.1:1433` and the relay script as an unrelated process, i.e.
 
     rtl_433_mqtt_relay.py &
-    rtl_433 -F syslog:127.0.0.1:1433
+    rtl_433_tx -F syslog:127.0.0.1:1433
 
 ### SQL
 
@@ -162,11 +162,11 @@ There is built-in support for an InfluxDB output.
 
 Specify an InfluxDB 2.0 server with e.g.
 
-    rtl_433 -F "influx://localhost:9999/api/v2/write?org=<org>&bucket=<bucket>,token=<authtoken>"
+    rtl_433_tx -F "influx://localhost:9999/api/v2/write?org=<org>&bucket=<bucket>,token=<authtoken>"
 
 Specify an InfluxDB 1.x server with e.g.
 
-    rtl_433 -F "influx://localhost:8086/write?db=<db>&p=<password>&u=<user>"
+    rtl_433_tx -F "influx://localhost:8086/write?db=<db>&p=<password>&u=<user>"
 
 It is recommended to additionally use the option `-M time:unix:usec:utc` for correct timestamps in InfluxDB.
 
