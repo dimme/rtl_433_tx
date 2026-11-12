@@ -69,6 +69,9 @@ not fit into 8 bits (that is for speeds above 93 kph on my tires).
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 static int tpms_renault_0435r_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigned row, unsigned bitpos)
 {
@@ -160,6 +163,90 @@ static int tpms_renault_0435r_callback(r_device *decoder, bitbuffer_t *bitbuffer
     return events > 0 ? events : ret;
 }
 
+/** Encoder: inverse of tpms_renault_0435r_decode(). */
+static int tpms_renault_0435r_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[2] = {0xaa, 0xa9};
+
+    if (cap->bits.num_rows < 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+    bitbuffer_invert(&bits);
+
+    int patched = 0;
+    uint8_t b[9];
+    for (int row = 0; row < bits.num_rows; ++row) {
+        unsigned bitpos = 0;
+        while ((bitpos = bitbuffer_search(&bits, row, bitpos, preamble_pattern, 16)) + 160 <= bits.bits_per_row[row]) {
+            bitbuffer_t packet = {0};
+            bitbuffer_manchester_decode(&bits, row, bitpos + 16, &packet, 72);
+            uint8_t *o = packet.bb[0];
+            if (packet.bits_per_row[0] < 72 || xor_bytes(o, 9) != 0) {
+                bitpos += 15;
+                continue;
+            }
+            memcpy(b, o, 9);
+
+            int v;
+            double d;
+            char const *f;
+            unsigned orig_id = (unsigned)o[0] << 16 | o[1] << 8 | o[2];
+            if ((f = capture_get_field(cap, "id")) && (strtoul(f, NULL, 16) & 0xffffff) != orig_id) {
+                unsigned id = (unsigned)strtoul(f, NULL, 16);
+                b[0]        = (uint8_t)(id >> 16);
+                b[1]        = (uint8_t)(id >> 8);
+                b[2]        = (uint8_t)id;
+            }
+            if ((f = capture_get_field(cap, "flags")) && (strtoul(f, NULL, 16) & 0xff) != o[3])
+                b[3] = (uint8_t)strtoul(f, NULL, 16);
+            if (encoder_field_dbl(cap, "pressure_kPa", &d) && fabs(d - o[4] / 0.75) > 1e-3) {
+                long p = lround(d * 0.75);
+                b[4]   = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+            }
+            if (encoder_field_dbl(cap, "temperature_C", &d) && lround(d) != o[5] - 50) {
+                long t = lround(d) + 50;
+                b[5]   = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+            }
+            if (encoder_field_dbl(cap, "centrifugal_acc", &d) && lround(d) != o[6] * 5) {
+                long a = lround(d / 5);
+                b[6]   = (uint8_t)(a < 0 ? 0 : a > 0xff ? 0xff : a);
+            }
+            int has_tick = o[8] >> 7, tick = o[8] & 0x7f;
+            if (encoder_field_int(cap, "has_tick", &v))
+                has_tick = v ? 1 : 0;
+            if (encoder_field_int(cap, "tick", &v) && v != tick - 0x80 * (1 - (o[8] >> 7)))
+                tick = v < 0 ? 0 : v > 30 ? 30 : v;
+            b[8] = has_tick ? (uint8_t)(0x80 | tick) : 0;
+
+            b[7] = 0;
+            b[7] = (uint8_t)xor_bytes(b, 9);
+
+            encoder_manchester_encode(bits.bb[row], bitpos + 16, b, 72, 0);
+            patched++;
+            bitpos += 16 + 144;
+        }
+    }
+    if (!patched)
+        return -1;
+
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%02x%02x%02x", b[0], b[1], b[2]);
+    capture_set_field(cap, "id", buf);
+    snprintf(buf, sizeof(buf), "%02x", b[3]);
+    capture_set_field(cap, "flags", buf);
+    encoder_set_dbl(cap, "pressure_kPa", b[4] / 0.75);
+    encoder_set_dbl(cap, "temperature_C", b[5] - 50.0);
+    encoder_set_dbl(cap, "centrifugal_acc", b[6] * 5.0);
+    snprintf(buf, sizeof(buf), "%d", b[8] >> 7);
+    capture_set_field(cap, "has_tick", buf);
+    snprintf(buf, sizeof(buf), "%d", (b[8] & 0x7f) - 0x80 * (1 - (b[8] >> 7)));
+    capture_set_field(cap, "tick", buf);
+
+    bitbuffer_invert(&bits);
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -181,5 +268,6 @@ r_device const tpms_renault_0435r = {
         .long_width  = 52,  // FSK
         .reset_limit = 150, // Maximum gap size before End Of Message [us].
         .decode_fn   = &tpms_renault_0435r_callback,
+        .encode_fn   = &tpms_renault_0435r_encode,
         .fields      = output_fields,
 };
