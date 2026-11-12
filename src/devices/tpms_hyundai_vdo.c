@@ -39,6 +39,9 @@ Packet nibbles:
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 static int tpms_hyundai_vdo_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigned row, unsigned bitpos)
 {
@@ -100,6 +103,75 @@ static int tpms_hyundai_vdo_decode(r_device *decoder, bitbuffer_t *bitbuffer, un
     return 1;
 }
 
+/** Encoder: inverse of tpms_hyundai_vdo_decode().
+
+    Patches all fields in every packet of row 0, recomputes the CRC-8 and
+    re-encodes the Manchester payload on the inverted bits.
+*/
+static int tpms_hyundai_vdo_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[4] = {0xaa, 0xaa, 0xaa, 0xa9};
+
+    if (cap->bits.num_rows < 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+    bitbuffer_invert(&bits);
+
+    int patched     = 0;
+    unsigned bitpos = 0;
+    while ((bitpos = bitbuffer_search(&bits, 0, bitpos, preamble_pattern, 32)) + 80 <= bits.bits_per_row[0]) {
+        bitbuffer_t packet = {0};
+        bitbuffer_manchester_decode(&bits, 0, bitpos + 32, &packet, 80);
+        uint8_t *p = packet.bb[0];
+        if (packet.bits_per_row[0] < 80 || crc8(p, 9, 0x07, 0xaa) != p[9]) {
+            bitpos += 2;
+            continue;
+        }
+        uint8_t b[10];
+        memcpy(b, p, 10);
+
+        char const *f;
+        int v;
+        double d;
+        if (encoder_field_int(cap, "state", &v))
+            b[0] = (uint8_t)v;
+        if ((f = capture_get_field(cap, "id"))) {
+            uint32_t id = (uint32_t)strtoul(f, NULL, 16);
+            b[1]        = (uint8_t)(id >> 24);
+            b[2]        = (uint8_t)(id >> 16);
+            b[3]        = (uint8_t)(id >> 8);
+            b[4]        = (uint8_t)id;
+        }
+        if (encoder_field_int(cap, "flags", &v))
+            b[5] = (uint8_t)((b[5] & 0x0f) | (v & 0x0f) << 4);
+        if (encoder_field_int(cap, "repeat", &v))
+            b[5] = (uint8_t)((b[5] & 0xf0) | (v & 0x0f));
+        if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+            long pr = lround(d / 1.375);
+            b[6]    = (uint8_t)(pr < 0 ? 0 : pr > 0xff ? 0xff : pr);
+            encoder_set_dbl(cap, "pressure_kPa", b[6] * 1.375);
+        }
+        if (encoder_field_dbl(cap, "temperature_C", &d)) {
+            long t = lround(d) + 50;
+            b[7]   = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+            encoder_set_dbl(cap, "temperature_C", b[7] - 50.0);
+        }
+        if (encoder_field_int(cap, "maybe_battery", &v))
+            b[8] = (uint8_t)v;
+        b[9] = crc8(b, 9, 0x07, 0xaa);
+
+        encoder_manchester_encode(bits.bb[0], bitpos + 32, b, 80, 0);
+        patched++;
+        bitpos += 32 + 160;
+    }
+    if (!patched)
+        return -1;
+
+    bitbuffer_invert(&bits);
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 /**
 Wrapper for the Hyundai-VDO tpms.
 @sa tpms_hyundai_vdo_decode()
@@ -148,5 +220,6 @@ r_device const tpms_hyundai_vdo = {
         .long_width  = 52,  // FSK
         .reset_limit = 150, // Maximum gap size before End Of Message [us].
         .decode_fn   = &tpms_hyundai_vdo_callback,
+        .encode_fn   = &tpms_hyundai_vdo_encode,
         .fields      = output_fields,
 };
