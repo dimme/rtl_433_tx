@@ -48,6 +48,10 @@ int encoder_field_int(capture_t const *cap, char const *key, int *out);
 /// Read a decoded field as double. @return 1 if present.
 int encoder_field_dbl(capture_t const *cap, char const *key, double *out);
 
+/// Store the value actually encoded (after quantization/clamping) back into a
+/// decoded field so encoder_verify() compares against what will be decoded.
+void encoder_set_dbl(capture_t *cap, char const *key, double val);
+
 /// Prepare a row-template encode for fixed-length payloads.
 ///
 /// Copies the capture's raw bits to @p out and extracts the first @p nbits

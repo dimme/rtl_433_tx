@@ -216,6 +216,7 @@ static int tpms_tyreguard400_encode(r_device const *decoder, struct capture *cap
             if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
                 long p = lround(d);
                 p = p < 0 ? 0 : p > 0x7ff ? 0x7ff : p;
+                encoder_set_dbl(cap, "pressure_kPa", p);
                 b[7] = (uint8_t)p;
                 flags = (uint8_t)((flags & ~0x70) | ((p >> 4) & 0x70));
             }
@@ -223,6 +224,7 @@ static int tpms_tyreguard400_encode(r_device const *decoder, struct capture *cap
             if (encoder_field_dbl(cap, "temperature_C", &d)) {
                 long t = lround(d) + 40;
                 b[8] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+                encoder_set_dbl(cap, "temperature_C", b[8] - 40);
             }
             b[10] = crc8(b, 10, 0x31, 0xdd);
 

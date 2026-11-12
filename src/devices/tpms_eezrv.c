@@ -207,12 +207,14 @@ static int tpms_eezrv_encode(r_device const *decoder, struct capture *cap, bitbu
     if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
         long p = lround(d / 2.5);
         p = p < 0 ? 0 : p > 0x1ff ? 0x1ff : p;
+        encoder_set_dbl(cap, "pressure_kPa", p * 2.5);
         b[3] = (uint8_t)p;
         b[6] = (uint8_t)((b[6] & 0xfe) | (p >> 8));
     }
     if (encoder_field_dbl(cap, "temperature_C", &d)) {
         long t = lround(d) + 50;
         b[4] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+        encoder_set_dbl(cap, "temperature_C", b[4] - 50);
     }
 
     int chk = add_bytes(b, sizeof(b));

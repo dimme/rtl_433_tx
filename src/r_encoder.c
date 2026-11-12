@@ -137,6 +137,13 @@ int encoder_field_dbl(capture_t const *cap, char const *key, double *out)
     return 1;
 }
 
+void encoder_set_dbl(capture_t *cap, char const *key, double val)
+{
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.4f", val);
+    capture_set_field(cap, key, buf);
+}
+
 static int encoder_is_payload_row(unsigned len, unsigned nbits)
 {
     return len + 1 >= nbits && len <= nbits + 2;

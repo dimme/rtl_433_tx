@@ -214,6 +214,7 @@ static int tpms_ford_encode(r_device const *decoder, struct capture *cap, bitbuf
         int psibits = (int)lround(atof(f) / 0.25);
         if (psibits < 0) psibits = 0;
         if (psibits > 0x1ff) psibits = 0x1ff;
+        encoder_set_dbl(cap, "pressure_PSI", psibits * 0.25);
         b[4] = (uint8_t)(psibits & 0xff);
         if (psibits & 0x100)
             b[6] |= 0x20;
@@ -224,6 +225,7 @@ static int tpms_ford_encode(r_device const *decoder, struct capture *cap, bitbuf
         int t = (int)lround(atof(f)) + 56;
         if (t < 0) t = 0;
         if (t > 0x7f) t = 0x7f;
+        encoder_set_dbl(cap, "temperature_C", t - 56);
         b[5] = (uint8_t)(t & 0x7f); // clears 0x80 -> temperature valid
     }
     int moving = 0, learn = 0;
