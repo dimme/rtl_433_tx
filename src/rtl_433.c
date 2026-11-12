@@ -1505,6 +1505,13 @@ static int str_ends_with(char const *s, char const *suffix)
 /// @return 0 on success, non-zero on error.
 static int run_transmit(r_cfg_t *cfg)
 {
+    // Transmit/replay is an explicit, interactive action: make sure its
+    // progress and result messages (emitted at LOG_NOTICE) are visible even
+    // at the default verbosity, without lowering a higher level set via -v.
+    if (cfg->verbosity < LOG_NOTICE) {
+        cfg->verbosity = LOG_NOTICE;
+    }
+
     FILE *in = fopen(cfg->tx_infile, "r");
     if (!in) {
         print_logf(LOG_ERROR, "Transmit", "Failed to open capture file %s", cfg->tx_infile);
