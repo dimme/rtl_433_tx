@@ -801,11 +801,28 @@ were applied.
     rtl_433_tx -j caps.json -d driver=hackrf -g 20
 
 > **Note:** dedicated encoders (rebuilding the payload and its CRC/checksum,
-> verified by decoding it again) are implemented for **Toyota TPMS**,
-> **Hyundai WS SENZOR** (`Hyundai-WS`), **Nexus / FreeTec NC-7345 / TFA
-> 30.3209** (`Nexus-TH`/`Nexus-T`), **Acurite 606TX** and **inFactory /
-> nor-tec NC-3982-913** (`inFactory-TH`). All other devices fall back to
-> generic raw-bit replay.
+> verified by decoding it again) are implemented for:
+>
+> - Weather: **Hyundai WS SENZOR** (`Hyundai-WS`), **Nexus / FreeTec NC-7345 /
+>   TFA 30.3209** (`Nexus-TH`/`Nexus-T`), **Acurite 606TX**, **inFactory /
+>   nor-tec NC-3982-913** (`inFactory-TH`)
+> - TPMS: **Abarth 124 Spider / Shenzhen EGQ Q85**, **BMW Gen4/Gen5 and Audi
+>   Pressure Alert**, **Citroen**, **EezTire E618 / Carchet / TST-507**,
+>   **Elantra2012**, **Ford**, **Gear Hive**, **GM-Aftermarket**, **Honda TRW**,
+>   **Jansite Solar**, **Jeep**, **Nissan**, **Renault**, **Schrader
+>   Motorcycle**, **Sefis M3 / Careud / Sykik SRTP300**, **Toyota**, **TRW (OOK
+>   and FSK)**, **TyreGuard 400**, **Unbranded SolarTPMS for trucks**
+>
+> All other devices fall back to generic raw-bit replay. Values are quantized
+> to what the protocol can represent (e.g. pressure steps); the capture is
+> updated with the value actually sent.
+
+> **Tip:** an IQ file written with `-o` uses the capture's own sample rate
+> (`-s` is ignored); override it with `-e sample_rate=N` and read the file back
+> at that rate. Fast FSK protocols (e.g. BMW/Continental TPMS, 25 µs bits)
+> need `-e sample_rate=1000000` (and `-s 1000k` on the receiver) to decode
+> reliably. Disabled-by-default decoders (e.g. Jeep TPMS) are enabled
+> automatically for transmit when the capture names them.
 
 > **Legal notice:** transmitting on ISM and other bands (and spoofing device
 > data such as TPMS frames) may be regulated or prohibited in your jurisdiction.
