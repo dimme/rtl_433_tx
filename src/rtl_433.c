@@ -59,6 +59,10 @@
 #include "mongoose.h"
 #include "timer.h"
 #include "rtl_433_devices.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include "pulse_tx.h"
+#include "sdr_tx.h"
 
 #ifdef _WIN32
 #include <io.h>
@@ -162,6 +166,11 @@ static void usage(int exit_code)
             "  [-M time[:<options>] | protocol | level | noise[:<secs>] | stats | bits | help] Add various meta data to each output.\n"
             "  [-K FILE | PATH | <tag> | <key>=<tag>] Add an expanded token or fixed tag to every output line.\n"
             "  [-C native | si | customary] Convert units in decoded output.\n"
+            "\t\t= Record / Edit / Re-transmit options =\n"
+            "  [-F capture[:<filename>]] Record received transmissions (raw pulses, bits, decoded values) to a JSON capture file (default: rtl_433_capture.json).\n"
+            "  [-j <filename>] Transmit (re-send) captures from a JSON capture file (enters transmit mode).\n"
+            "  [-e <key>=<value>] Edit a decoded field before transmit (repeatable). Special keys: freq_hz, sample_rate, repeats.\n"
+            "  [-o <filename>] Transmit output target: .json writes an (edited) capture, .cu8/.cs16/.cf32 writes an IQ file; omit to transmit via SDR (-d/-f/-s/-g).\n"
             "  [-n <value>] Specify number of samples to take (each sample is an I/Q pair)\n"
             "  [-T <seconds>] Specify number of seconds to run, also 12:34 or 1h23m45s\n"
             "  [-E hop | quit] Hop/Quit after outputting successful event(s)\n"
@@ -398,7 +407,7 @@ static int hasopt(int test, int argc, char *argv[], char const *optstring)
 
 static void parse_conf_option(r_cfg_t *cfg, int opt, char *arg);
 
-#define OPTSTRING "hVvqD:c:x:z:p:a:AI:S:m:M:r:w:W:l:d:t:f:H:g:s:b:n:R:X:F:K:C:T:UGy:E:Y:"
+#define OPTSTRING "hVvqD:c:x:z:p:a:AI:S:m:M:r:w:W:l:d:t:f:H:g:s:b:n:R:X:F:K:C:T:UGy:E:Y:j:e:o:"
 
 // these should match the short options exactly
 static struct conf_keywords const conf_keywords[] = {
@@ -891,6 +900,10 @@ static void parse_conf_option(r_cfg_t *cfg, int opt, char *arg)
         else if (strncmp(arg, "null", 4) == 0) {
             add_null_output(cfg, arg_param(arg));
         }
+        else if (strncmp(arg, "capture", 7) == 0) {
+            char const *fn = arg_param(arg);
+            cfg->capture_filename = fn && *fn ? fn : "rtl_433_capture.json";
+        }
         else if (strncmp(arg, "rtl_tcp", 7) == 0) {
             add_rtltcp_output(cfg, arg_param(arg));
         }
@@ -1032,6 +1045,20 @@ static void parse_conf_option(r_cfg_t *cfg, int opt, char *arg)
         else {
             cfg->after_successful_events_flag = atobv(arg, 1);
         }
+        break;
+    case 'j':
+        cfg->tx_infile = arg;
+        break;
+    case 'e':
+        if (arg) {
+            char *edit = strdup(arg);
+            if (!edit)
+                FATAL_STRDUP("parse_conf_option()");
+            list_push(&cfg->tx_edits, edit);
+        }
+        break;
+    case 'o':
+        cfg->tx_outfile = arg;
         break;
     default:
         usage(1);
@@ -1463,6 +1490,213 @@ static void timer_handler(struct mg_connection *nc, int ev, void *ev_data)
     }
 }
 
+static int str_ends_with(char const *s, char const *suffix)
+{
+    if (!s || !suffix) return 0;
+    size_t ls = strlen(s), lx = strlen(suffix);
+    return ls >= lx && strcasecmp(s + ls - lx, suffix) == 0;
+}
+
+/// Transmit (and/or edit) captures from cfg->tx_infile.
+///
+/// Applies any -e edits, rebuilds the raw data via the device encoder (or a
+/// generic replay), then either writes an edited capture / IQ file (-o) or
+/// transmits via a TX-capable SDR (-f/-s/-g/-d).
+/// @return 0 on success, non-zero on error.
+static int run_transmit(r_cfg_t *cfg)
+{
+    FILE *in = fopen(cfg->tx_infile, "r");
+    if (!in) {
+        print_logf(LOG_ERROR, "Transmit", "Failed to open capture file %s", cfg->tx_infile);
+        return 1;
+    }
+
+    FILE *out_json = NULL;
+    int out_is_json = cfg->tx_outfile && str_ends_with(cfg->tx_outfile, ".json");
+    int out_is_cu8  = cfg->tx_outfile && str_ends_with(cfg->tx_outfile, ".cu8");
+    int out_is_cs16 = cfg->tx_outfile && (str_ends_with(cfg->tx_outfile, ".cs16") || str_ends_with(cfg->tx_outfile, ".sr"));
+    int out_is_cf32 = cfg->tx_outfile && (str_ends_with(cfg->tx_outfile, ".cf32") || str_ends_with(cfg->tx_outfile, ".iq"));
+    int out_is_iq   = out_is_cu8 || out_is_cs16 || out_is_cf32;
+    int do_tx       = !cfg->tx_outfile; // no -o => transmit over SDR
+
+    if (cfg->tx_outfile && !out_is_json && !out_is_iq) {
+        print_logf(LOG_ERROR, "Transmit", "Unknown output extension for %s (use .json/.cu8/.cs16/.cf32)", cfg->tx_outfile);
+        fclose(in);
+        return 1;
+    }
+    if (out_is_json) {
+        out_json = fopen(cfg->tx_outfile, "w");
+        if (!out_json) {
+            print_logf(LOG_ERROR, "Transmit", "Failed to open output %s", cfg->tx_outfile);
+            fclose(in);
+            return 1;
+        }
+    }
+
+    double tx_gain = cfg->gain_str ? atof(cfg->gain_str) : 20.0;
+    unsigned count = 0;
+    int err = 0;
+    int rr;
+    capture_t cap;
+
+    while ((rr = capture_read_next(in, &cap)) == 0) {
+        count++;
+
+        // Apply -e edits (key=value). Keys "freq_hz"/"sample_rate"/"repeats"
+        // adjust transmit parameters; everything else is a decoded field.
+        unsigned edited = 0;
+        unsigned repeats = 1;
+        for (void **it = cfg->tx_edits.elems; it && *it; ++it) {
+            char const *e = *it;
+            char const *eq = strchr(e, '=');
+            if (!eq) continue;
+            size_t klen = (size_t)(eq - e);
+            char key[128];
+            if (klen >= sizeof(key)) klen = sizeof(key) - 1;
+            memcpy(key, e, klen);
+            key[klen] = '\0';
+            char const *val = eq + 1;
+            if (!strcmp(key, "freq_hz")) {
+                cap.freq_hz = (uint32_t)strtoul(val, NULL, 0);
+            }
+            else if (!strcmp(key, "sample_rate")) {
+                cap.sample_rate = (uint32_t)strtoul(val, NULL, 0);
+                cap.pulses.sample_rate = cap.sample_rate;
+            }
+            else if (!strcmp(key, "repeats")) {
+                repeats = (unsigned)strtoul(val, NULL, 0);
+            }
+            else {
+                capture_set_field(&cap, key, val);
+                edited = 1;
+            }
+        }
+
+        r_device *dev = capture_find_device(&cfg->demod->r_devs, &cap);
+
+        if (edited) {
+            int rc = capture_rebuild(&cap, dev);
+            if (rc < 0) {
+                print_logf(LOG_WARNING, "Transmit",
+                        "Capture %u: could not rebuild raw data after edit (replaying original pulses)", count);
+            }
+            else if (rc == 0) {
+                print_logf(LOG_NOTICE, "Transmit", "Capture %u: rebuilt via %s encoder", count, cap.model ? cap.model : "device");
+            }
+            else {
+                print_logf(LOG_NOTICE, "Transmit", "Capture %u: rebuilt generically (bit-level)", count);
+            }
+        }
+        else if (dev && cap.bits.num_rows > 0) {
+            // Un-edited replay: regenerate clean pulse timing from the decoded
+            // bits so receiver-side jitter doesn't corrupt the retransmission.
+            // Falls back to the stored pulses for unsupported modulations.
+            pulse_data_t saved = cap.pulses;
+            if (capture_pulses_from_bits(&cap, dev) < 0)
+                cap.pulses = saved;
+        }
+
+        if (out_is_json) {
+            capture_write_json(out_json, &cap);
+            capture_clear(&cap);
+            continue;
+        }
+
+        // Determine IQ synthesis parameters.
+        uint32_t iq_rate;
+        if (out_is_iq) {
+            iq_rate = cap.sample_rate ? cap.sample_rate : cfg->samp_rate;
+        }
+        else {
+            // SDR TX: HackRF and most TX SDRs require >= 2 MHz.
+            iq_rate = cfg->samp_rate;
+            if (iq_rate < 2000000) iq_rate = 2000000;
+        }
+
+        tx_mod_params_t mp;
+        tx_mod_params_defaults(&mp, iq_rate, cap.is_fsk);
+        if (repeats > 1) mp.repeats = repeats;
+        if (cap.pulses.sample_rate == 0) cap.pulses.sample_rate = cap.sample_rate;
+
+        if (out_is_iq) {
+            int w = -1;
+            if (out_is_cu8) {
+                uint8_t *buf = NULL; size_t len = 0;
+                if (pulse_tx_to_cu8(&cap.pulses, &mp, &buf, &len) == 0)
+                    w = pulse_tx_write_cu8(cfg->tx_outfile, buf, len);
+                free(buf);
+            }
+            else if (out_is_cs16) {
+                int16_t *buf = NULL; size_t len = 0;
+                if (pulse_tx_to_cs16(&cap.pulses, &mp, &buf, &len) == 0)
+                    w = pulse_tx_write_cs16(cfg->tx_outfile, buf, len);
+                free(buf);
+            }
+            else { // cf32
+                float *buf = NULL; size_t len = 0;
+                if (pulse_tx_to_cf32(&cap.pulses, &mp, &buf, &len) == 0) {
+                    FILE *fo = fopen(cfg->tx_outfile, "wb");
+                    if (fo) {
+                        w = (fwrite(buf, sizeof(float), len, fo) == len) ? 0 : -1;
+                        fclose(fo);
+                    }
+                }
+                free(buf);
+            }
+            if (w == 0)
+                print_logf(LOG_NOTICE, "Transmit", "Capture %u: wrote IQ to %s at %u Hz", count, cfg->tx_outfile, iq_rate);
+            else {
+                print_logf(LOG_ERROR, "Transmit", "Capture %u: failed to write IQ to %s", count, cfg->tx_outfile);
+                err = 1;
+            }
+        }
+
+        if (do_tx) {
+            float *buf = NULL; size_t len = 0;
+            if (pulse_tx_to_cf32(&cap.pulses, &mp, &buf, &len) == 0) {
+                sdr_tx_params_t tp = {
+                        .dev_query    = cfg->dev_query,
+                        .sample_rate  = iq_rate,
+                        .center_freq  = cap.freq_hz ? cap.freq_hz : cfg->center_frequency,
+                        .gain         = tx_gain,
+                        .antenna      = NULL,
+                        .verbose      = cfg->verbosity >= LOG_NOTICE,
+                };
+                print_logf(LOG_NOTICE, "Transmit", "Capture %u: transmitting on %.3f MHz at %u Hz (gain %.0f dB)",
+                        count, tp.center_freq / 1e6, iq_rate, tx_gain);
+                int tr = sdr_tx_cf32(&tp, buf, len);
+                if (tr != 0) {
+                    print_logf(LOG_ERROR, "Transmit", "Capture %u: SDR transmit failed (%d)", count, tr);
+                    err = 1;
+                }
+            }
+            else {
+                print_logf(LOG_ERROR, "Transmit", "Capture %u: IQ synthesis failed", count);
+                err = 1;
+            }
+            free(buf);
+        }
+
+        capture_clear(&cap);
+    }
+
+    if (rr < 0) {
+        print_log(LOG_ERROR, "Transmit", "Error reading capture file");
+        err = 1;
+    }
+    if (out_json) fclose(out_json);
+    fclose(in);
+
+    if (count == 0) {
+        print_log(LOG_ERROR, "Transmit", "No captures found in input file");
+        err = 1;
+    }
+    else {
+        print_logf(LOG_NOTICE, "Transmit", "Processed %u capture(s)", count);
+    }
+    return err;
+}
+
 int main(int argc, char **argv) {
     int r = 0;
     struct dm_state *demod;
@@ -1549,6 +1783,13 @@ int main(int argc, char **argv) {
     // register default decoders if nothing is configured
     if (!cfg->no_default_devices) {
         register_all_protocols(cfg, 0); // register all defaults
+    }
+
+    // Transmit mode: edit/replay captures and emit IQ or transmit via SDR.
+    if (cfg->tx_infile) {
+        r = run_transmit(cfg);
+        r_free_cfg(cfg);
+        exit(r);
     }
 
     // check if we need FM demod

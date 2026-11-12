@@ -126,6 +126,9 @@ add_library(r_433 STATIC
     pulse_detect.c
     pulse_detect_fsk.c
     pulse_slicer.c
+    pulse_tx.c
+    capture.c
+    r_encoder.c
     r_api.c
     r_flow.c
     r_util.c
@@ -134,6 +137,7 @@ add_library(r_433 STATIC
     rfraw.c
     samp_grab.c
     sdr.c
+    sdr_tx.c
     sigmf.c
     string_expand.c
     term_ctl.c

@@ -183,4 +183,10 @@ int pulse_slicer_rzi(pulse_data_t const *pulses, r_device *device);
 /// @return number of events processed
 int pulse_slicer_string(const char *code, r_device *device);
 
+/// Stash the most recent raw bitbuffer (set just before each decode attempt).
+void pulse_slicer_stash_bits(struct bitbuffer const *bits);
+
+/// Get the most recently stashed raw bitbuffer (valid during a decode callback).
+struct bitbuffer const *pulse_slicer_last_bitbuffer(void);
+
 #endif /* INCLUDE_PULSE_SLICER_H_ */

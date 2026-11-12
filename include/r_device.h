@@ -58,6 +58,7 @@ enum decode_return_codes {
 
 struct bitbuffer;
 struct data;
+struct capture;
 
 /** Device protocol decoder struct. */
 typedef struct r_device {
@@ -76,6 +77,8 @@ typedef struct r_device {
     uint8_t lora_spreading_factor; ///< LoRa spreading factor.
     uint8_t lora_sync_word; ///< LoRa network synchronization word.
     int (*decode_fn)(struct r_device *decoder, struct bitbuffer *bitbuffer);
+    /** Optional encoder: build raw bits from (edited) capture fields. Inverse of decode_fn. */
+    int (*encode_fn)(struct r_device const *decoder, struct capture *cap, struct bitbuffer *out_bits);
     struct r_device *(*create_fn)(char const *args);
     unsigned priority; ///< Run later and only if no previous events were produced
     unsigned disabled; ///< 0: default enabled, 1: default disabled, 2: disabled, 3: disabled and hidden

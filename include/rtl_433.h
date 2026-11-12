@@ -6,6 +6,7 @@
 #define INCLUDE_RTL_433_H_
 
 #include <stdint.h>
+#include <stdio.h>
 #include "list.h"
 #include <time.h>
 #include <signal.h>
@@ -69,6 +70,11 @@ typedef struct r_cfg {
     char const *test_data;
     list_t in_files;
     char const *in_filename;
+    char const *capture_filename; ///< -F capture:FILE  record captures to this file
+    FILE *capture_file;           ///< open handle for capture recording
+    char const *tx_infile;        ///< -j FILE  transmit captures from this file
+    char const *tx_outfile;       ///< -o FILE  write IQ (.cu8/.cs16/.cf32) or capture (.json)
+    list_t tx_edits;              ///< -e key=value  edits applied before transmit
     int in_replay;
     volatile sig_atomic_t hop_now; ///< flag to cause channel hopping, async written by signal handler and push_sdr_flow()
     volatile sig_atomic_t exit_async; ///< flag to cause exiting, async written by signal handler
