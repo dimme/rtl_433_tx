@@ -806,13 +806,17 @@ were applied.
 > - Weather: **Hyundai WS SENZOR** (`Hyundai-WS`), **Nexus / FreeTec NC-7345 /
 >   TFA 30.3209** (`Nexus-TH`/`Nexus-T`), **Acurite 606TX**, **inFactory /
 >   nor-tec NC-3982-913** (`inFactory-TH`)
-> - TPMS: **Abarth 124 Spider / Shenzhen EGQ Q85**, **BMW Gen4/Gen5 and Audi
->   Pressure Alert**, **BMW Gen2/Gen3**, **Airpuxem TYH11_EU6_ZQ**, **AVE**, **Citroen**, **EezTire E618 / Carchet / TST-507**,
->   **Elantra2012**, **Ford**, **Gear Hive**, **GM-Aftermarket**, **Honda TRW**, **Hyundai VDO**, **iMars T240** (`code` only),
->   **Jansite Solar**, **Jansite TY02S** (checksum unknown, kept unless `code` is edited),
->   **Jansite TY-468-eu2 / KKMOON**, **Jansite TY588-EU2**, **Jeep**, **Kia Rio III**, **Mercedes-Benz Sprinter**, **Nissan**, **PMV-107J**, **Porsche Boxster/Cayman**, **Renault**, **Renault 0435R**, **Schrader
->   Motorcycle**, **Sefis M3 / Careud / Sykik SRTP300**, **SmarTire Vantage / Aston Martin DB9**, **Toyota**, **TRW (OOK
->   and FSK)**, **TyreGuard 400**, **Unbranded SolarTPMS for trucks**
+> - TPMS: **Abarth 124 Spider / Shenzhen EGQ Q85**, **Airpuxem TYH11_EU6_ZQ**,
+>   **AVE**, **BMW Gen2/Gen3**, **BMW Gen4/Gen5 and Audi Pressure Alert**,
+>   **Citroen**, **EezTire E618 / Carchet / TST-507**, **Elantra2012**,
+>   **Ford**, **Gear Hive**, **GM-Aftermarket**, **Honda TRW**, **Hyundai VDO**,
+>   **iMars T240** (`code` only), **Jansite Solar**, **Jansite TY-468-eu2 /
+>   KKMOON**, **Jansite TY02S** (checksum unknown, kept unless `code` is
+>   edited), **Jansite TY588-EU2**, **Jeep**, **Kia Rio III**, **Mercedes-Benz
+>   Sprinter**, **Nissan**, **PMV-107J**, **Porsche Boxster/Cayman**,
+>   **Renault**, **Renault 0435R**, **Schrader Motorcycle**, **Sefis M3 / Careud
+>   / Sykik SRTP300**, **SmarTire Vantage / Aston Martin DB9**, **Toyota**,
+>   **TRW (OOK and FSK)**, **TyreGuard 400**, **Unbranded SolarTPMS for trucks**
 >
 > All other devices fall back to generic raw-bit replay. Values are quantized
 > to what the protocol can represent (e.g. pressure steps); the capture is
@@ -820,9 +824,9 @@ were applied.
 
 > **Tip:** an IQ file written with `-o` uses the capture's own sample rate
 > (`-s` is ignored); override it with `-e sample_rate=N` and read the file back
-> at that rate. Fast FSK protocols (e.g. BMW/Continental TPMS, 25 µs bits)
-> need `-e sample_rate=1000000` (and `-s 1000k` on the receiver) to decode
-> reliably. Disabled-by-default decoders (e.g. Jeep TPMS) are enabled
+> at that rate. Fast FSK protocols (e.g. BMW/Continental and Mercedes-Benz
+> TPMS, 25 µs bits) need `-e sample_rate=1000000` (and `-s 1000k` on the
+> receiver) to decode reliably. Disabled-by-default decoders (e.g. Jeep TPMS) are enabled
 > automatically for transmit when the capture names them.
 
 > **Legal notice:** transmitting on ISM and other bands (and spoofing device
