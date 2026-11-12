@@ -75,4 +75,7 @@ char const *capture_get_field(capture_t const *cap, char const *key);
 /// Set (or add) a decoded field value by key.
 void capture_set_field(capture_t *cap, char const *key, char const *val);
 
+/// Remove a decoded field by key (no-op if absent).
+void capture_del_field(capture_t *cap, char const *key);
+
 #endif /* INCLUDE_CAPTURE_H_ */
