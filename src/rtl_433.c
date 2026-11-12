@@ -102,9 +102,9 @@
 /// above HACKRF_TX_VGA_MAX_DB/2 = 23 dB to "TX RF amp on (+14 dB) + VGA", and the
 /// TX RF amp (MGA-81563) is the HackRF One part most commonly destroyed
 /// (see greatscottgadgets/hackrf#974). Capping at 23 dB keeps the amp bypassed.
-/// Can be lifted with --i-want-to-fry-my-tx.
+/// Can be lifted with --i-want-to-fry-my-amp.
 #define TX_GAIN_SAFE_MAX_DB 23
-#define TX_FRY_OPT "--i-want-to-fry-my-tx"
+#define TX_FRY_OPT "--i-want-to-fry-my-amp"
 #define TXG_STR_(x) #x
 #define TXG_STR(x) TXG_STR_(x)
 
@@ -182,7 +182,7 @@ static void usage(int exit_code)
             "  [-e <key>=<value>] Edit a decoded field before transmit (repeatable). Special keys: freq_hz, sample_rate, repeats.\n"
             "  [-o <filename>] Transmit output target: .json writes an (edited) capture, .cu8/.cs16/.cf32 writes an IQ file; omit to transmit via SDR (-d/-f/-s/-g).\n"
             "       TX gain (-g) is capped at " TXG_STR(TX_GAIN_SAFE_MAX_DB) " dB (HackRF One: VGA only, TX RF amp off).\n"
-            "  [--i-want-to-fry-my-tx] DANGER: lift the TX gain cap. May permanently destroy your TX amplifier!\n"
+            "  [--i-want-to-fry-my-amp] DANGER: lift the TX gain cap. Reflected power may permanently destroy the TX RF amp!\n"
             "  [-n <value>] Specify number of samples to take (each sample is an I/Q pair)\n"
             "  [-T <seconds>] Specify number of seconds to run, also 12:34 or 1h23m45s\n"
             "  [-E hop | quit] Hop/Quit after outputting successful event(s)\n"
@@ -1556,7 +1556,7 @@ static int run_transmit(r_cfg_t *cfg)
 
     double tx_gain = cfg->gain_str ? atof(cfg->gain_str) : 20.0;
     if (do_tx && tx_gain > TX_GAIN_SAFE_MAX_DB) {
-        if (!cfg->tx_fry) {
+        if (!cfg->tx_fry_amp) {
             print_logf(LOG_WARNING, "Transmit",
                     "TX gain %.0f dB exceeds the safe limit of %d dB; clamping to %d dB. "
                     "Above %d dB the HackRF One TX RF amplifier is switched on, which can permanently damage it. "
@@ -1569,16 +1569,16 @@ static int run_transmit(r_cfg_t *cfg)
                     "\n"
                     "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
                     "!!                                                                          !!\n"
-                    "!!   DANGER: " TX_FRY_OPT " GIVEN -- TX GAIN SAFETY LIMIT DISABLED   !!\n"
+                    "!!   DANGER: " TX_FRY_OPT " GIVEN -- TX GAIN SAFETY LIMIT DISABLED  !!\n"
                     "!!                                                                          !!\n"
                     "!!   Requested TX gain: %5.1f dB (safe limit: %2d dB)                        !!\n"
                     "!!                                                                          !!\n"
-                    "!!   On a HackRF One, any overall TX gain above %2d dB enables the TX RF     !!\n"
-                    "!!   amplifier (MGA-81563). This part is the most commonly destroyed        !!\n"
-                    "!!   component of the HackRF One. Transmitting with it enabled into a bad   !!\n"
-                    "!!   match, no antenna, or straight into another receiver/amplifier CAN     !!\n"
-                    "!!   PERMANENTLY KILL YOUR TX PATH. Higher power also means more harmonics  !!\n"
-                    "!!   and spurious emissions that may be ILLEGAL where you are.              !!\n"
+                    "!!   On a HackRF One, any overall TX gain above %2d dB switches on the TX    !!\n"
+                    "!!   RF amplifier (MGA-81563), the most commonly destroyed part of the      !!\n"
+                    "!!   HackRF One. Transmitting into a bad match, no antenna, or straight     !!\n"
+                    "!!   into another receiver/amplifier reflects power back into the amp and   !!\n"
+                    "!!   CAN PERMANENTLY KILL IT. Higher power also means more harmonics and    !!\n"
+                    "!!   spurious emissions that may be ILLEGAL where you are.                  !!\n"
                     "!!                                                                          !!\n"
                     "!!   Always use a matched 50 ohm antenna or dummy load / attenuator.        !!\n"
                     "!!   YOU ALONE ARE RESPONSIBLE FOR ANY DAMAGE TO HARDWARE OR THE LAW.       !!\n"
@@ -1777,7 +1777,7 @@ int main(int argc, char **argv) {
             break;
         }
         if (!strcmp(argv[i], TX_FRY_OPT)) {
-            cfg->tx_fry = 1;
+            cfg->tx_fry_amp = 1;
             for (int k = i; k < argc; ++k) {
                 argv[k] = argv[k + 1]; // argv[argc] is NULL
             }
