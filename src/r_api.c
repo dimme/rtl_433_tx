@@ -23,6 +23,7 @@
 #include "rtl_433_devices.h"
 #include "r_device.h"
 #include "pulse_slicer.h"
+#include "capture.h"
 #include "pulse_detect_fsk.h"
 #include "bitbuffer.h"
 #include "decoder_util.h"
@@ -130,6 +131,7 @@ void r_init_cfg(r_cfg_t *cfg)
 
     list_ensure_size(&cfg->in_files, 100);
     list_ensure_size(&cfg->output_handler, 16);
+    list_ensure_size(&cfg->tx_edits, 8);
 
     // collect devices list, this should be a module
     r_device r_devices[] = {
@@ -229,6 +231,13 @@ void r_free_cfg(r_cfg_t *cfg)
     list_free_elems(&cfg->data_tags, (list_elem_free_fn)data_tag_free);
 
     list_free_elems(&cfg->in_files, NULL);
+
+    list_free_elems(&cfg->tx_edits, free);
+
+    if (cfg->capture_file) {
+        fclose(cfg->capture_file);
+        cfg->capture_file = NULL;
+    }
 
     free(cfg->demod);
     cfg->demod = NULL;
@@ -756,6 +765,41 @@ void log_device_handler(r_device *r_dev, int level, data_t *data)
 void data_acquired_handler(r_device *r_dev, data_t *data)
 {
     r_cfg_t *cfg = r_dev->output_ctx;
+
+    // Record the transmission (raw pulses, raw bits, decoded fields) before any
+    // SI/customisation of the data_t list below.
+    if (cfg->capture_filename) {
+        if (!cfg->capture_file) {
+            cfg->capture_file = fopen(cfg->capture_filename, "a");
+            if (!cfg->capture_file)
+                print_logf(LOG_ERROR, "Capture", "Failed to open capture file %s", cfg->capture_filename);
+        }
+        if (cfg->capture_file) {
+            pulse_data_t const *pd = (r_dev->modulation >= FSK_DEMOD_MIN_VAL && r_dev->modulation < LORA_DEMOD_MIN_VAL)
+                    ? &cfg->demod->fsk_pulse_data
+                    : &cfg->demod->pulse_data;
+            bitbuffer_t const *bits = pulse_slicer_last_bitbuffer();
+            capture_t cap;
+            capture_from_decode(&cap, r_dev, pd, bits, data, cfg->center_frequency);
+            char ts[64];
+            time_t now = time(NULL);
+            struct tm tm_buf;
+#ifdef _WIN32
+            struct tm *tm_now = localtime(&now);
+            if (tm_now) tm_buf = *tm_now;
+#else
+            localtime_r(&now, &tm_buf);
+#endif
+            strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%S", &tm_buf);
+            free(cap.time);
+            cap.time = strdup(ts);
+            if (!cap.time)
+                FATAL_STRDUP("data_acquired_handler()");
+            capture_write_json(cfg->capture_file, &cap);
+            fflush(cfg->capture_file);
+            capture_clear(&cap);
+        }
+    }
 
 #ifndef NDEBUG
     // check for undeclared csv fields

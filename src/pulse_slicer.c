@@ -23,8 +23,23 @@
 #include <math.h>
 #include <limits.h>
 
+static bitbuffer_t g_last_bitbuffer;
+
+void pulse_slicer_stash_bits(bitbuffer_t const *bits)
+{
+    g_last_bitbuffer = *bits;
+}
+
+bitbuffer_t const *pulse_slicer_last_bitbuffer(void)
+{
+    return &g_last_bitbuffer;
+}
+
 static int account_event(r_device *device, bitbuffer_t *bits, char const *demod_name)
 {
+    // stash the raw bits so a capture recorder can access them during decode
+    pulse_slicer_stash_bits(bits);
+
     // run decoder
     int ret = 0;
     if (device->decode_fn) {
