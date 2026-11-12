@@ -533,7 +533,10 @@ target_link_libraries(rtl_433
 
 set(INSTALL_TARGETS rtl_433)
 if(UNIX)
-target_link_libraries(rtl_433 m)
+    # r_433 is a static library that uses libm (e.g. sincos/lround in
+    # pulse_tx.c). Link it here so libm becomes a usage requirement and
+    # propagates to every executable that links r_433 (tests included).
+    target_link_libraries(r_433 m)
 endif()
 
 # Explicitly say that we want C99
