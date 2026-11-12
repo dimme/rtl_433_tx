@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /**
 Honda (TRW PPA-GF33) TPMS sensor.
@@ -105,6 +108,65 @@ static int tpms_honda_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of tpms_honda_callback().
+
+    Keeps the 23-bit marker, patches pressure, temperature, id and flags,
+    recomputes the CRC-8 and re-encodes the Manchester payload in place.
+    Pressures the decoder rejects (raw 1..49) are clamped to raw 50.
+*/
+static int tpms_honda_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    static uint8_t const marker[3] = {0xda, 0xe3, 0x54};
+
+    if (cap->bits.num_rows != 1)
+        return -1;
+    bitbuffer_t src = cap->bits;
+    if (bitbuffer_search(&src, 0, 0, marker, 23) != 0 || 23 + 128 > src.bits_per_row[0])
+        return -1;
+
+    bitbuffer_t packet = {0};
+    bitbuffer_manchester_decode(&src, 0, 23, &packet, 64);
+    if (packet.bits_per_row[0] < 64)
+        return -1;
+    uint8_t b[8];
+    memcpy(b, packet.bb[0], 8);
+
+    char const *f;
+    int v;
+    double d;
+    if (encoder_field_dbl(cap, "pressure_PSI", &d)) {
+        long p = lround(d / 0.2);
+        p = p < 0 ? 0 : p > 0xff ? 0xff : p;
+        if (p > 0 && p < 50)
+            p = 50;
+        b[0] = (uint8_t)p;
+        encoder_set_dbl(cap, "pressure_PSI", p * 0.2);
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d) + 50;
+        b[1] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+        encoder_set_dbl(cap, "temperature_C", b[1] - 50);
+    }
+    if ((f = capture_get_field(cap, "id"))) {
+        uint32_t id = (uint32_t)strtoul(f, NULL, 16);
+        b[2] = (uint8_t)(id >> 24);
+        b[3] = (uint8_t)(id >> 16);
+        b[4] = (uint8_t)(id >> 8);
+        b[5] = (uint8_t)id;
+    }
+    if (encoder_field_int(cap, "flags", &v))
+        b[6] = (uint8_t)v;
+    b[7] = crc8(b, 7, 0x07, 0x00);
+
+    encoder_manchester_encode(src.bb[0], 23, b, 64, 0);
+
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -123,5 +185,6 @@ r_device const tpms_honda = {
         .long_width  = 50,
         .reset_limit = 200,
         .decode_fn   = &tpms_honda_callback,
+        .encode_fn   = &tpms_honda_encode,
         .fields      = output_fields,
 };
