@@ -49,31 +49,31 @@ add_test(lora_fm_test test_lora_fm)
 ########################################################################
 # Define integration tests
 ########################################################################
-add_test(rtl_433_help ../src/rtl_433 -h)
-add_test(lora_fft_demod_option ../src/rtl_433 -Y lora-fft -h)
-add_test(lora_fm_demod_option ../src/rtl_433 -Y lora-fm -h)
-add_test(flex_decoder_help ../src/rtl_433 -X)
+add_test(rtl_433_help ../src/rtl_433_tx -h)
+add_test(lora_fft_demod_option ../src/rtl_433_tx -Y lora-fft -h)
+add_test(lora_fm_demod_option ../src/rtl_433_tx -Y lora-fm -h)
+add_test(flex_decoder_help ../src/rtl_433_tx -X)
 add_test(flex_decoder bash -c
     "touch empty_file.cu8 && \
-    ../src/rtl_433 \
+    ../src/rtl_433_tx \
         -X n=name,m=FSK_PCM,s=10,l=10,r=10240 \
         -r empty_file.cu8")
 # Borrowed from: https://github.com/merbanan/rtl_433/pull/786#issuecomment-410513334
 add_test(flex_decoder_w_getter bash -c
     "touch empty_file.cu8 && \
-    ../src/rtl_433 \
+    ../src/rtl_433_tx \
         -X 'n=name,m=FSK_PCM,s=10,l=10,r=10240,get=@20:{12}0x7f:status:[10:pir 14:open 7:close 11:tamper 0xf:battery_low]' \
         -r empty_file.cu8")
 # Borrowed from: https://github.com/merbanan/rtl_433/pull/1532#issue-728103584
 add_test(flex_decoder_w_getter_and_format_specifier bash -c
     "touch empty_file.cu8 && \
-    ../src/rtl_433 \
+    ../src/rtl_433_tx \
         -X 'n=name,m=FSK_PCM,s=10,l=10,r=10240,get=@2:{32}:code:%x' \
         -r empty_file.cu8")
 
 # OpenSSL-generated LoRaWAN 1.0.x uplink containing an ELSYS ERS CO2 payload.
 add_test(elsys_ers_lorawan
-    ../src/rtl_433
+    ../src/rtl_433_tx
     -R 389:nwkskey=000102030405060708090a0b0c0d0e0f,appskey=101112131415161718191a1b1c1d1e1f,devaddr=26011bda
     -F json
     -y {232}40da1b0126803412054c7b09b35182041da68f1d7f476c16913de6aa95)
@@ -82,7 +82,7 @@ set_tests_properties(elsys_ers_lorawan PROPERTIES
 
 # Independent LoRaWAN 1.0.x vectors from github.com/brocaar/lorawan.
 add_test(lorawan_data_vector
-    ../src/rtl_433
+    ../src/rtl_433_tx
     -R 388:nwkskey=02020202020202020202020202020202,appskey=01010101010101010101010101010101,devaddr=01020304
     -F json
     -y {144}400403020180010001a694642615d6c3b582)
@@ -90,7 +90,7 @@ set_tests_properties(lorawan_data_vector PROPERTIES
     PASS_REGULAR_EXPRESSION "Unconfirmed Data Up.*frm_payload.*68656c6c6f.*CMAC")
 
 add_test(lorawan_fport_zero_vector
-    ../src/rtl_433
+    ../src/rtl_433_tx
     -R 388:nwkskey=01010101010101010101010101010101,devaddr=01020304
     -F json
     -y {128}40040302010000000069369eee6aa508)
@@ -98,7 +98,7 @@ set_tests_properties(lorawan_fport_zero_vector PROPERTIES
     PASS_REGULAR_EXPRESSION "fport.*0.*frm_payload.*020305.*CMAC")
 
 add_test(lorawan_join_request_vector
-    ../src/rtl_433
+    ../src/rtl_433_tx
     -R 388:appkey=01010101010101010101010101010101
     -F json
     -y {184}00040302010403020105040302050403022d106a990e12)
@@ -106,7 +106,7 @@ set_tests_properties(lorawan_join_request_vector PROPERTIES
     PASS_REGULAR_EXPRESSION "Join Request.*join_eui.*0102030401020304.*dev_nonce.*4141.*CMAC")
 
 add_test(lorawan_join_accept_vector
-    ../src/rtl_433
+    ../src/rtl_433_tx
     -R 388:appkey=00112233445566778899aabbccddeeff
     -F json
     -y {136}20493eeb51fba2116f810edb3742975142)

@@ -31,14 +31,15 @@ decoder source; both SoapySDR-HackRF-TX and IQ-file output paths; verify builds 
 - [x] Help/usage text updated.
 - [x] Full project build green.
 - [x] All 28 ctest tests pass (incl. style-check).
-- [x] End-to-end verified: record -> replay -> edit (32->31 psi, CRC valid) via `rtl_433 -r`.
+- [x] End-to-end verified: record -> replay -> edit (32->31 psi, CRC valid) via `rtl_433_tx -r`.
 - [x] HackRF reachable via SoapySDR (SDR TX path ready; no real RF emitted during testing).
+- [x] Build/install renamed: executable builds and installs as `rtl_433_tx`, man page as `rtl_433_tx.1` (CMake `OUTPUT_NAME`); tests updated, all 28 pass.
 
 ## Usage
-- Record:      `rtl_433 -F capture:caps.json`            (append each decode: pulses+bits+fields)
-- Replay IQ:   `rtl_433 -j caps.json -o out.cu8`         (.cu8/.cs16/.cf32 IQ, or .json edited capture)
-- Edit+IQ:     `rtl_433 -j caps.json -e pressure_PSI=31 -o out.cu8`
-- Transmit:    `rtl_433 -j caps.json -d driver=hackrf -g 20`   (omit -o => SDR TX; freq from capture)
+- Record:      `rtl_433_tx -F capture:caps.json`            (append each decode: pulses+bits+fields)
+- Replay IQ:   `rtl_433_tx -j caps.json -o out.cu8`         (.cu8/.cs16/.cf32 IQ, or .json edited capture)
+- Edit+IQ:     `rtl_433_tx -j caps.json -e pressure_PSI=31 -o out.cu8`
+- Transmit:    `rtl_433_tx -j caps.json -d driver=hackrf -g 20`   (omit -o => SDR TX; freq from capture)
 - Edit keys:   any decoded field, plus freq_hz / sample_rate / repeats.
 - Dev helper:  `tests/tx_bootstrap.c` builds a synthetic valid Toyota capture for testing.
 

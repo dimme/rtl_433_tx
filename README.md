@@ -709,6 +709,9 @@ This fork can record received transmissions, edit their decoded values while
 reconstructing matching raw data, and re-transmit the original or edited
 recording over a TX-capable SDR (e.g. HackRF One via SoapySDR) or to an IQ file.
 
+> **Note:** this fork builds and installs its binary as `rtl_433_tx` (the man
+> page is installed as `rtl_433_tx.1`). The examples below use that name.
+
 A **capture file** is line-delimited JSON (one capture object per line). Each
 capture stores the metadata (protocol, modulation, frequency, sample rate,
 timing), the raw pulse train, the raw demodulated bits, and the decoded fields
@@ -720,8 +723,8 @@ Add `-F capture[:<filename>]` to any normal receive (or file replay) command.
 Every successfully decoded transmission is appended to the capture file
 (default `rtl_433_capture.json`).
 
-    rtl_433 -F capture:caps.json
-    rtl_433 -r signal.cu8 -s 250000 -F capture:caps.json   # record from a saved IQ file
+    rtl_433_tx -F capture:caps.json
+    rtl_433_tx -r signal.cu8 -s 250000 -F capture:caps.json   # record from a saved IQ file
 
 ### 2. Re-transmit (replay)
 
@@ -729,17 +732,17 @@ Every successfully decoded transmission is appended to the capture file
 `-o`, it transmits over the SDR selected with `-d` (center frequency comes from
 the capture, overridable per the edit keys below; use `-g` for TX gain):
 
-    rtl_433 -j caps.json -d driver=hackrf -g 20
+    rtl_433_tx -j caps.json -d driver=hackrf -g 20
 
 With `-o`, it writes to a file instead of transmitting:
 
 | `-o` extension | Result |
 |----------------|--------|
-| `.cu8` / `.cs16` / `.cf32` | IQ sample file (feed to `hackrf_transfer`, GNU Radio, or replay with `rtl_433 -r`) |
+| `.cu8` / `.cs16` / `.cf32` | IQ sample file (feed to `hackrf_transfer`, GNU Radio, or replay with `rtl_433_tx -r`) |
 | `.json` | A new capture file (useful to save edits) |
 
-    rtl_433 -j caps.json -o out.cu8                 # synthesize an IQ file
-    rtl_433 -r out.cu8 -s 250000 -F json            # verify it decodes back
+    rtl_433_tx -j caps.json -o out.cu8                 # synthesize an IQ file
+    rtl_433_tx -r out.cu8 -s 250000 -F json            # verify it decodes back
 
 ### 3. Edit then re-transmit
 
@@ -750,11 +753,11 @@ decoding them again. For devices without a dedicated encoder, a generic
 bit-level rebuild / replay is used.
 
     # Lower a captured Toyota TPMS pressure by 1 psi and transmit it
-    rtl_433 -j caps.json -e pressure_PSI=31 -d driver=hackrf -g 20
+    rtl_433_tx -j caps.json -e pressure_PSI=31 -d driver=hackrf -g 20
 
     # Same edit, but write an IQ file and confirm it decodes to the new value
-    rtl_433 -j caps.json -e pressure_PSI=31 -o edited.cu8
-    rtl_433 -r edited.cu8 -s 250000 -F json
+    rtl_433_tx -j caps.json -e pressure_PSI=31 -o edited.cu8
+    rtl_433_tx -r edited.cu8 -s 250000 -F json
 
 Besides decoded fields, three special keys adjust the transmission itself:
 `freq_hz`, `sample_rate`, and `repeats` (number of times to send the frame).
