@@ -98,6 +98,16 @@
 #define STDERR_FILENO 2
 #endif
 
+/// Maximum "safe" overall TX gain (dB). SoapyHackRF maps an overall TX gain
+/// above HACKRF_TX_VGA_MAX_DB/2 = 23 dB to "TX RF amp on (+14 dB) + VGA", and the
+/// TX RF amp (MGA-81563) is the HackRF One part most commonly destroyed
+/// (see greatscottgadgets/hackrf#974). Capping at 23 dB keeps the amp bypassed.
+/// Can be lifted with --i-want-to-fry-my-tx.
+#define TX_GAIN_SAFE_MAX_DB 23
+#define TX_FRY_OPT "--i-want-to-fry-my-tx"
+#define TXG_STR_(x) #x
+#define TXG_STR(x) TXG_STR_(x)
+
 static void print_version(void)
 {
     fprintf(stderr, "%s\n", version_string());
@@ -160,17 +170,19 @@ static void usage(int exit_code)
             "  [-w <filename> | help] Save data stream to output file (a '-' dumps samples to stdout)\n"
             "  [-W <filename> | help] Save data stream to output file, overwrite existing file\n"
             "\t\t= Data output options =\n"
-            "  [-F log | kv | json | csv | mqtt | influx | syslog | trigger | rtl_tcp | http | null | help] Produce decoded output in given format.\n"
+            "  [-F log | kv | json | csv | mqtt | influx | syslog | trigger | rtl_tcp | http | capture | null | help] Produce decoded output in given format.\n"
             "       Append output to file with :<filename> (e.g. -F csv:log.csv), defaults to stdout.\n"
             "       Specify host/port for syslog with e.g. -F syslog:127.0.0.1:1514\n"
+            "       Record received transmissions to a JSON capture file with -F capture[:<filename>] (default: rtl_433_capture.json).\n"
             "  [-M time[:<options>] | protocol | level | noise[:<secs>] | stats | bits | help] Add various meta data to each output.\n"
             "  [-K FILE | PATH | <tag> | <key>=<tag>] Add an expanded token or fixed tag to every output line.\n"
             "  [-C native | si | customary] Convert units in decoded output.\n"
             "\t\t= Record / Edit / Re-transmit options =\n"
-            "  [-F capture[:<filename>]] Record received transmissions (raw pulses, bits, decoded values) to a JSON capture file (default: rtl_433_capture.json).\n"
             "  [-j <filename>] Transmit (re-send) captures from a JSON capture file (enters transmit mode).\n"
             "  [-e <key>=<value>] Edit a decoded field before transmit (repeatable). Special keys: freq_hz, sample_rate, repeats.\n"
             "  [-o <filename>] Transmit output target: .json writes an (edited) capture, .cu8/.cs16/.cf32 writes an IQ file; omit to transmit via SDR (-d/-f/-s/-g).\n"
+            "       TX gain (-g) is capped at " TXG_STR(TX_GAIN_SAFE_MAX_DB) " dB (HackRF One: VGA only, TX RF amp off).\n"
+            "  [--i-want-to-fry-my-tx] DANGER: lift the TX gain cap. May permanently destroy your TX amplifier!\n"
             "  [-n <value>] Specify number of samples to take (each sample is an I/Q pair)\n"
             "  [-T <seconds>] Specify number of seconds to run, also 12:34 or 1h23m45s\n"
             "  [-E hop | quit] Hop/Quit after outputting successful event(s)\n"
@@ -269,7 +281,7 @@ static void help_output(void)
 {
     term_help_fprintf(stdout,
             "\t\t= Output format option =\n"
-            "  [-F log|kv|json|csv|mqtt|influx|syslog|trigger|rtl_tcp|http|null] Produce decoded output in given format.\n"
+            "  [-F log|kv|json|csv|mqtt|influx|syslog|trigger|rtl_tcp|http|capture|null] Produce decoded output in given format.\n"
             "\tWithout this option the default is LOG and KV output. Use \"-F null\" to remove the default.\n"
             "\tAppend output to file with :<filename> (e.g. -F csv:log.csv), defaults to stdout.\n"
             "  [-F mqtt[s][:[//]host[:port][,<options>]] (default: localhost:1883)\n"
@@ -300,7 +312,9 @@ static void help_output(void)
             "  [-F rtl_tcp[:[//]bind[:port]] (default: localhost:1234)\n"
             "\tAdd a rtl_tcp pass-through server\n"
             "  [-F http[:[//]bind[:port]] (default: 0.0.0.0:8433)\n"
-            "\tAdd a HTTP API server, a UI is at e.g. http://localhost:8433/\n");
+            "\tAdd a HTTP API server, a UI is at e.g. http://localhost:8433/\n"
+            "  [-F capture[:<filename>]] (default: rtl_433_capture.json)\n"
+            "\tRecord received transmissions (raw pulses, bits, decoded values) to a JSON capture file for later edit/re-transmit (-j).\n");
     exit(0);
 }
 
@@ -1541,6 +1555,39 @@ static int run_transmit(r_cfg_t *cfg)
     }
 
     double tx_gain = cfg->gain_str ? atof(cfg->gain_str) : 20.0;
+    if (do_tx && tx_gain > TX_GAIN_SAFE_MAX_DB) {
+        if (!cfg->tx_fry) {
+            print_logf(LOG_WARNING, "Transmit",
+                    "TX gain %.0f dB exceeds the safe limit of %d dB; clamping to %d dB. "
+                    "Above %d dB the HackRF One TX RF amplifier is switched on, which can permanently damage it. "
+                    "Use " TX_FRY_OPT " to override (at your own risk!).",
+                    tx_gain, TX_GAIN_SAFE_MAX_DB, TX_GAIN_SAFE_MAX_DB, TX_GAIN_SAFE_MAX_DB);
+            tx_gain = TX_GAIN_SAFE_MAX_DB;
+        }
+        else {
+            fprintf(stderr,
+                    "\n"
+                    "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+                    "!!                                                                          !!\n"
+                    "!!   DANGER: " TX_FRY_OPT " GIVEN -- TX GAIN SAFETY LIMIT DISABLED   !!\n"
+                    "!!                                                                          !!\n"
+                    "!!   Requested TX gain: %5.1f dB (safe limit: %2d dB)                        !!\n"
+                    "!!                                                                          !!\n"
+                    "!!   On a HackRF One, any overall TX gain above %2d dB enables the TX RF     !!\n"
+                    "!!   amplifier (MGA-81563). This part is the most commonly destroyed        !!\n"
+                    "!!   component of the HackRF One. Transmitting with it enabled into a bad   !!\n"
+                    "!!   match, no antenna, or straight into another receiver/amplifier CAN     !!\n"
+                    "!!   PERMANENTLY KILL YOUR TX PATH. Higher power also means more harmonics  !!\n"
+                    "!!   and spurious emissions that may be ILLEGAL where you are.              !!\n"
+                    "!!                                                                          !!\n"
+                    "!!   Always use a matched 50 ohm antenna or dummy load / attenuator.        !!\n"
+                    "!!   YOU ALONE ARE RESPONSIBLE FOR ANY DAMAGE TO HARDWARE OR THE LAW.       !!\n"
+                    "!!                                                                          !!\n"
+                    "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+                    "\n",
+                    tx_gain, TX_GAIN_SAFE_MAX_DB, TX_GAIN_SAFE_MAX_DB);
+        }
+    }
     unsigned count = 0;
     int err = 0;
     int rr;
@@ -1723,6 +1770,21 @@ int main(int argc, char **argv) {
     setbuf(stderr, NULL);
 
     demod = cfg->demod;
+
+    // strip the long-only TX_FRY_OPT before getopt sees it
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--")) {
+            break;
+        }
+        if (!strcmp(argv[i], TX_FRY_OPT)) {
+            cfg->tx_fry = 1;
+            for (int k = i; k < argc; ++k) {
+                argv[k] = argv[k + 1]; // argv[argc] is NULL
+            }
+            argc--;
+            i--;
+        }
+    }
 
     // if there is no explicit conf file option look for default conf files
     if (!hasopt('c', argc, argv, OPTSTRING)) {
