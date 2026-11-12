@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /**
 General Motors Aftermarket TPMS.
@@ -125,6 +128,79 @@ static int tpms_gm_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of tpms_gm_decode().
+
+    Patches id, flags, pressure and temperature into the 130-bit row and
+    recomputes the checksum. Edits to battery_ok / learn_mode (with flags left
+    unchanged) are folded into the flags; both are then re-derived from flags.
+*/
+static int tpms_gm_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    if (cap->bits.num_rows != 1 || cap->bits.bits_per_row[0] != 130)
+        return -1;
+
+    bitbuffer_t src = cap->bits;
+    uint8_t b[17] = {0};
+    bitbuffer_extract_bytes(&src, 0, 0, b, 130);
+
+    int orig_flags = (b[6] << 8) | b[7];
+    int flags      = orig_flags;
+    int v;
+    char const *f;
+    if (encoder_field_int(cap, "flags", &v))
+        flags = v & 0xffff;
+    if (flags == orig_flags) {
+        int orig_batt  = !((orig_flags >> 5) & 1);
+        int orig_learn = !(orig_flags & 0x103);
+        if (encoder_field_int(cap, "battery_ok", &v) && !!v != orig_batt)
+            flags = v ? (flags & ~0x20) : (flags | 0x20);
+        if (encoder_field_int(cap, "learn_mode", &v) && !!v != orig_learn)
+            flags = v ? (flags & ~0x103) : (flags | 0x103);
+    }
+    b[6] = (uint8_t)(flags >> 8);
+    b[7] = (uint8_t)flags;
+
+    if ((f = capture_get_field(cap, "id"))) {
+        uint64_t id = strtoull(f, NULL, 10);
+        for (int i = 0; i < 5; ++i)
+            b[8 + i] = (uint8_t)(id >> (32 - 8 * i));
+    }
+    double d;
+    if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+        long p = lround(d / 2.75);
+        b[13] = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d) + 60;
+        b[14] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+    }
+
+    uint8_t sum = 0;
+    for (int i = 6; i < 15; ++i)
+        sum += b[i];
+    b[15] = sum;
+
+    char tmp[16];
+    snprintf(tmp, sizeof(tmp), "%d", flags);
+    capture_set_field(cap, "flags", tmp);
+    snprintf(tmp, sizeof(tmp), "%d", !((flags >> 5) & 1));
+    capture_set_field(cap, "battery_ok", tmp);
+    snprintf(tmp, sizeof(tmp), "%d", !(flags & 0x103));
+    capture_set_field(cap, "learn_mode", tmp);
+    // stored value is the decoded quantization of the edited pressure
+    snprintf(tmp, sizeof(tmp), "%g", b[13] * 2.75);
+    capture_set_field(cap, "pressure_kPa", tmp);
+
+    for (unsigned k = 0; k < 128; ++k)
+        encoder_set_bit(src.bb[0], k, (b[k / 8] >> (7 - (k % 8))) & 1);
+
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 /** Output fields for rtl_433 */
 static char const *const output_fields[] = {
         "model",
@@ -146,5 +222,6 @@ r_device const tpms_gm = {
         .long_width  = 0,
         .reset_limit = 15600,
         .decode_fn   = &tpms_gm_decode,
+        .encode_fn   = &tpms_gm_encode,
         .fields      = output_fields,
 };
