@@ -11,6 +11,10 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
+#include <stdlib.h>
 
 // sum2N checksum, expects a 0x03 result for a valid message
 // See https://github.com/merbanan/rtl_433/issues/1024#issuecomment-2592665745
@@ -87,6 +91,73 @@ static int tpms_nissan_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigne
     return 1;
 }
 
+/** Encoder: inverse of tpms_nissan_decode().
+
+    Rebuilds the raw FSK-PCM/Manchester bitstream from (edited) decoded fields,
+    keeping the captured preamble and re-encoding the 37-bit Manchester payload
+    in place. The two "unknown" bits double as checksum bits and are solved so
+    the sum2N checksum validates.
+*/
+static int tpms_nissan_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    if (cap->bits.num_rows < 1)
+        return -1;
+
+    uint8_t const preamble_pattern[5] = {0xf5, 0x55, 0x55, 0x55, 0xe0}; // 36 bits
+
+    bitbuffer_t src = cap->bits;
+    unsigned bitpos = bitbuffer_search(&src, 0, 0, preamble_pattern, 36);
+    if (bitpos + 36 + 74 > src.bits_per_row[0])
+        return -1;
+    unsigned pstart = bitpos + 36;
+
+    int mode = 0, unknown = 0;
+    unsigned id = 0;
+    double psi = 0.0;
+    char const *f;
+    encoder_field_int(cap, "mode", &mode);
+    encoder_field_int(cap, "unknown", &unknown);
+    if ((f = capture_get_field(cap, "id")))
+        id = (unsigned)strtoul(f, NULL, 16);
+    encoder_field_dbl(cap, "pressure_PSI", &psi);
+
+    int pressure_raw = (int)lround((psi + 3.0) * 4.0);
+    if (pressure_raw < 0) pressure_raw = 0;
+    if (pressure_raw > 255) pressure_raw = 255;
+
+    uint8_t b[5];
+    b[0] = (uint8_t)(((mode & 7) << 5) | ((id >> 19) & 0x1f));
+    b[1] = (uint8_t)(id >> 11);
+    b[2] = (uint8_t)(id >> 3);
+    b[3] = (uint8_t)(((id & 7) << 5) | ((pressure_raw >> 3) & 0x1f));
+
+    // the "unknown" field carries the checksum; solve it so sum2N validates
+    int solved = -1;
+    for (int u = 0; u < 4; ++u) {
+        b[4] = (uint8_t)(((pressure_raw & 7) << 5) | ((u & 3) << 3));
+        if (tpms_nissan_checksum(b) == 0) {
+            solved = u;
+            break;
+        }
+    }
+    if (solved < 0)
+        return -1;
+    if (solved != unknown) {
+        char ustr[8];
+        snprintf(ustr, sizeof(ustr), "%d", solved);
+        capture_set_field(cap, "unknown", ustr);
+    }
+
+    // re-encode 37 data bits as Manchester (decoder inverts after decode)
+    encoder_manchester_encode(src.bb[0], pstart, b, 37, 1);
+
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 /** @sa tpms_nissan_decode() */
 static int tpms_nissan_callback(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -127,6 +198,7 @@ r_device const tpms_nissan = {
         .long_width  = 120, // FSK
         .reset_limit = 250, // Maximum gap size before End Of Message [us]. TODO What should this be?
         .decode_fn   = &tpms_nissan_callback,
+        .encode_fn   = &tpms_nissan_encode,
         .disabled    = 0,
         .fields      = output_fields,
 };
