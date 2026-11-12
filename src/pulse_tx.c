@@ -28,7 +28,7 @@ void tx_mod_params_defaults(tx_mod_params_t *p, uint32_t sample_rate, int is_fsk
     p->fsk_dev_hz    = 25000.0; // +-25 kHz deviation, 50 kHz separation
     p->ook_offset_hz = 0.0;     // transmit OOK pulses at the carrier
     p->amplitude     = 0.85;
-    p->repeats       = 1;
+    p->repeats       = 3;       // real devices repeat each frame; improves reception of short bursts
     p->gap_us        = 10000.0; // 10 ms idle between repeats
     p->ramp_us       = 2.0;     // small ramp to reduce key-click splatter
 }
@@ -106,6 +106,7 @@ int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
     int s_long  = (int)(device->long_width * samples_per_us + 0.5f);
     int s_sync  = (int)(device->sync_width * samples_per_us + 0.5f);
     int s_reset = (int)(device->reset_limit * samples_per_us + 0.5f);
+    int s_gap   = (int)(device->gap_limit * samples_per_us + 0.5f);
     if (s_long <= 0)
         s_long = s_short;
     if (s_short <= 0)
@@ -115,8 +116,22 @@ int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
     pulses->sample_rate = sample_rate;
 
     unsigned mod = device->modulation;
-    // inter-row gap: use reset_limit so slicers split rows the same way.
-    int row_gap = s_reset > 0 ? s_reset : s_long * 8;
+    // End-of-message silence: a gap >= reset_limit tells the slicer the frame is
+    // over. Fall back to a wide gap when the device has no reset_limit.
+    int reset_gap = s_reset > 0 ? s_reset : s_long * 8;
+    // Inter-row separator: slicers start a new row (within the same bitbuffer)
+    // for a gap wider than a data symbol but shorter than reset_limit. Decoders
+    // routinely require several repeated rows, so rows must stay in one buffer
+    // instead of each ending the message. Pick a value above the longest data
+    // symbol / gap_limit yet safely below reset_limit.
+    int row_floor = s_long > s_gap ? s_long : s_gap;
+    int row_sep   = reset_gap;
+    if (reset_gap > row_floor + 2)
+        row_sep = (row_floor + reset_gap) / 2;
+    // PPM encodes each bit in the gap *following* a pulse, so the final bit of a
+    // row needs its own terminator pulse; stretching the last data gap would
+    // otherwise swallow the final bit at the slicer.
+    int is_ppm = (mod == OOK_PULSE_PPM);
 
     for (unsigned r = 0; r < bits->num_rows; ++r) {
         uint8_t const *row = bits->bb[r];
@@ -140,16 +155,26 @@ int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
             return -1; // unsupported coding; caller should replay original pulses
         }
 
-        // extend the gap of the last pulse to a row separator / reset
-        if (bits->num_rows > 1 && r + 1 < bits->num_rows && pulses->num_pulses > 0) {
-            pulses->gap[pulses->num_pulses - 1] += row_gap;
+        if (pulses->num_pulses == 0)
+            continue;
+
+        int last_row = (r + 1 >= bits->num_rows);
+        if (is_ppm) {
+            // terminator pulse carries the row separator so the final data gap
+            // keeps its short/long meaning. The whole-message reset is added
+            // after the loop.
+            pd_append(pulses, s_short, last_row ? 0 : row_sep);
+        }
+        else if (!last_row) {
+            // separate rows without ending the message
+            pulses->gap[pulses->num_pulses - 1] += row_sep;
         }
     }
 
     if (pulses->num_pulses == 0)
         return -1;
     // ensure a trailing reset gap so the receiver ends the message
-    pulses->gap[pulses->num_pulses - 1] += row_gap;
+    pulses->gap[pulses->num_pulses - 1] += reset_gap;
     return 0;
 }
 

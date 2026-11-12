@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased (rtl_433_tx)
+
+### Transmit fixes
+
+- Fixed SDR transmit silently dropping short bursts: the TX stream was closed immediately after queueing samples, discarding whatever the driver had not yet clocked out (SoapyHackRF ring buffer). The stream now flags the final chunk as END_BURST and waits for the hardware to radiate the whole signal before deactivating. This is why FSK (e.g. Toyota TPMS) transmissions were never received.
+- Fixed OOK PPM encoding losing the last bit of each row (the reset gap was merged into the final data gap) by appending a terminator pulse per row.
+- Fixed multi-row OOK messages being split into separate transmissions by using an inter-row separator gap between the data-symbol width and reset_limit, so repeated rows stay in one bitbuffer for decoders that require several repeats (e.g. Acurite 606).
+- Changed the default transmit repeats from 1 to 3 so short single-frame captures are received reliably; override with `-e repeats=N`.
+
 ## Release 25.12 (2025-12-12)
 
 ### Breaking Changes
