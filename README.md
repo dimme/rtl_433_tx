@@ -785,6 +785,17 @@ bit-level rebuild / replay is used.
 Besides decoded fields, three special keys adjust the transmission itself:
 `freq_hz`, `sample_rate`, and `repeats` (number of times to send the frame).
 
+**Editing the capture file directly:** instead of `-e`, you can simply open the
+capture file in a text editor, change values in a capture's `"decoded"` block
+(or its top-level `"freq_hz"`), save it, and transmit it with `-j` as usual.
+For devices with a dedicated encoder (e.g. Toyota TPMS) the payload is always
+rebuilt from the `"decoded"` values, so your edits are what gets sent. For
+devices without an encoder, `"decoded"` edits are ignored and the raw bits in
+`"rows"` are replayed; edit `"rows"` itself (or use `-e`) in that case.
+
+    # Edit "pressure_PSI" in caps.json by hand, then:
+    rtl_433_tx -j caps.json -d driver=hackrf -g 20
+
 > **Note:** correct dedicated encoders are provided per device where
 > implemented, with **Toyota TPMS** as the full-fidelity reference; all other
 > devices fall back to generic replay / bit-level editing.
