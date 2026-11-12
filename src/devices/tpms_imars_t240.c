@@ -10,6 +10,8 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
 
 /**
 iMars T240 TPMS.
@@ -101,6 +103,59 @@ static int tpms_imars_t240_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of tpms_imars_t240_decode().
+
+    Only "code" (B0..B6) can be edited. B7 is set to B0, B1's low nibble
+    follows B0, and if B3 + B4 is not a known checksum constant then B4 is
+    adjusted to keep the original unit's constant.
+*/
+static int tpms_imars_t240_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[3] = {0xaa, 0xaa, 0xaa};
+
+    if (cap->bits.num_rows != 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+
+    unsigned pos = bitbuffer_search(&bits, 0, 0, preamble_pattern, 24);
+    if (pos + 160 > bits.bits_per_row[0])
+        return -1;
+
+    bitbuffer_t packet = {0};
+    bitbuffer_manchester_decode(&bits, 0, pos + 32, &packet, 64);
+    bitbuffer_invert(&packet);
+    if (packet.bits_per_row[0] < 64)
+        return -1;
+    uint8_t b[8];
+    memcpy(b, packet.bb[0], 8);
+    int orig_sum = (b[3] + b[4]) & 0xff;
+    if (orig_sum != 0x41 && orig_sum != 0x3c)
+        return -1;
+
+    char code_str[7 * 2 + 1];
+    snprintf(code_str, sizeof(code_str), "%02x%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6]);
+    char const *f = capture_get_field(cap, "code");
+    if (f && strlen(f) == 14 && strcmp(f, code_str)) {
+        for (int i = 0; i < 7; i++) {
+            char h[3] = {f[2 * i], f[2 * i + 1], 0};
+            b[i]      = (uint8_t)strtoul(h, NULL, 16);
+        }
+    }
+    b[1]    = (uint8_t)((b[1] & 0xf0) | (b[0] & 0x0f));
+    int sum = (b[3] + b[4]) & 0xff;
+    if (sum != 0x41 && sum != 0x3c)
+        b[4] = (uint8_t)(orig_sum - b[3]);
+    b[7] = b[0];
+
+    encoder_manchester_encode(bits.bb[0], pos + 32, b, 64, 1);
+
+    snprintf(code_str, sizeof(code_str), "%02x%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6]);
+    capture_set_field(cap, "code", code_str);
+
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -116,5 +171,6 @@ r_device const tpms_imars_t240 = {
         .long_width  = 50,
         .reset_limit = 200,
         .decode_fn   = &tpms_imars_t240_decode,
+        .encode_fn   = &tpms_imars_t240_encode,
         .fields      = output_fields,
 };
