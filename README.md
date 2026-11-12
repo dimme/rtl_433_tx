@@ -1,57 +1,267 @@
 # rtl_433_tx
 
-rtl_433_tx is a fork of [rtl_433](https://github.com/merbanan/rtl_433/) that
-adds recording, editing and re-transmitting of captured signals (see
-[Recording, editing and re-transmitting](#recording-editing-and-re-transmitting)).
-Its binary installs as `rtl_433_tx`.
-
-rtl_433_tx (despite the name) is a generic data receiver, mainly for the 433.92 MHz, 868 MHz (SRD), 315 MHz, 345 MHz, and 915 MHz ISM bands.
-
-The official source code is in the https://github.com/merbanan/rtl_433/ repository.
-
-See also [a list of software that works with
-rtl_433](https://github.com/merbanan/rtl_433/wiki/Built-with-rtl_433!)
-in the wiki.
-For more documentation and related projects, particularly those that
-help with rtl_433 development, see the https://triq.org/ site.
-
-It works with [RTL-SDR](https://github.com/osmocom/rtl-sdr/) and/or [SoapySDR](https://github.com/pothosware/SoapySDR/).
-Actively tested and supported are Realtek RTL2832 based DVB dongles (using RTL-SDR) and LimeSDR ([LimeSDR USB](https://www.crowdsupply.com/lime-micro/limesdr) and [LimeSDR mini](https://www.crowdsupply.com/lime-micro/limesdr-mini) engineering samples kindly provided by [MyriadRf](https://myriadrf.org/)), PlutoSDR, HackRF One (using SoapySDR drivers), as well as SoapyRemote.
-
-> **This fork (`rtl_433_tx`)** additionally lets you **record** received transmissions
-> (raw pulses, raw bits, and decoded values), **edit** the decoded values and reconstruct
-> the raw data, and **re-transmit** original or edited recordings via a TX-capable SDR
-> (e.g. HackRF One via SoapySDR) or to an IQ file.
-> See [Recording, editing and re-transmitting](#recording-editing-and-re-transmitting).
+**rtl_433_tx** is a fork of [rtl_433](https://github.com/merbanan/rtl_433/), the
+generic data receiver for the 433.92 MHz, 868 MHz (SRD), 315 MHz, 345 MHz and
+915 MHz ISM bands. On top of everything rtl_433 can decode, this fork can
+**record**, **edit** and **re-transmit** captured signals.
 
 ![rtl_433 screenshot](./docs/screenshot.png)
 
+## Contents
+
+- [Features](#features)
+- [Supported hardware](#supported-hardware)
+- [Building](#building)
+- [Quick start](#quick-start)
+- [Recording, editing and re-transmitting](#recording-editing-and-re-transmitting)
+- [Supported encoders](#supported-encoders)
+- [Command-line reference](#command-line-reference)
+- [Troubleshooting](#troubleshooting)
+- [Security](#security)
+- [Contributing](#contributing)
+- [Upstream and related projects](#upstream-and-related-projects)
+
+## Features
+
+- Decodes the 390+ device protocols supported by upstream rtl_433
+  (weather stations, TPMS, remotes, utility meters, ...).
+- **Record** every decoded transmission (raw pulses, raw bits and decoded
+  values) to a JSON capture file with `-F capture`.
+- **Edit** decoded values with `-e key=value` or a text editor. For devices with
+  an [encoder](#supported-encoders) the raw payload, including CRCs and
+  checksums, is rebuilt and verified by decoding it again.
+- **Re-transmit** original or edited captures through a TX-capable SDR (e.g.
+  HackRF One via SoapySDR), or write them to an IQ file.
+- Installs as `rtl_433_tx` (man page `rtl_433_tx.1`), so it can sit next to a
+  stock `rtl_433` install.
+
+## Supported hardware
+
+rtl_433_tx works with [RTL-SDR](https://github.com/osmocom/rtl-sdr/) and
+[SoapySDR](https://github.com/pothosware/SoapySDR/) devices.
+
+| Device | Driver | Receive | Transmit |
+|--------|--------|:-------:|:--------:|
+| Realtek RTL2832 DVB dongles | RTL-SDR | ✅ | — |
+| HackRF One | SoapySDR | ✅ | ✅ |
+| LimeSDR USB / LimeSDR mini | SoapySDR | ✅ | untested |
+| PlutoSDR | SoapySDR | ✅ | untested |
+| Remote devices | SoapyRemote, rtl_tcp | ✅ | — |
+
+Transmit has been tested on the HackRF One. Other TX-capable SoapySDR devices
+may work but are untested.
+
 ## Building
 
-rtl_433_tx is written in portable C (C99 standard) and known to compile on Linux (also embedded), FreeBSD, MacOS, and Windows systems.
-Older compilers and toolchains are supported as a key-goal.
-Low resource consumption and very few dependencies allow rtl_433_tx to run on embedded hardware.
-Most common 32-bit and 64-bit CPU architectures like amd64, arm64, armhf, i386, ppc64el, riscv64, s390x and others are well supported.
+rtl_433_tx is written in portable C (C99) and builds on Linux (including
+embedded), FreeBSD, macOS and Windows. It needs few dependencies and runs on
+most 32-bit and 64-bit architectures (amd64, arm64, armhf, i386, ppc64el,
+riscv64, s390x, ...).
 
-See [BUILDING.md](docs/BUILDING.md)
+This fork is not in any distribution's package repositories, so you need to
+build it from source. See [BUILDING.md](docs/BUILDING.md).
 
-## Installation
-
-Linux (Debian, Ubuntu): `sudo apt install rtl-433`. For other distributions see [repology](https://repology.org/project/rtl-433/versions) or [pkgs.org](https://pkgs.org/download/rtl-433).
-
-FreeBSD: `pkg install rtl-433`.
-
-MacOS: `brew install rtl_433`.
-
-Docker images with rtl_433 are available [on the github page of hertzg](https://github.com/hertzg/rtl_433_docker).
-
-## How to add support for unsupported sensors
-
-See [CONTRIBUTING.md](./docs/CONTRIBUTING.md).
-
-## Running
+## Quick start
 
     rtl_433_tx -h
+
+| Command | Description |
+|---------|-------------|
+| `rtl_433_tx` | Receive at 433.92 MHz and 250k sample rate on the first device found. |
+| `rtl_433_tx -C si` | Same, but convert units to the metric system. |
+| `rtl_433_tx -f 868M -s 1024k` | Listen at 868 MHz and 1024k sample rate. |
+| `rtl_433_tx -f 433.53M -f 434.02M -H 15` | Hop between two frequencies every 15 seconds. |
+| `rtl_433_tx -M hires -M level` | Microsecond timestamps plus reception levels. |
+| `rtl_433_tx -R 1 -R 8 -R 43` | Enable only the listed decoders. |
+| `rtl_433_tx -R -216 -R 216` | Enable the default decoders plus one that is off by default (216). |
+| `rtl_433_tx -A` | Pulse analyzer: show pulse, gap and period timings. Add `-R 0` to turn off decoders. |
+| `rtl_433_tx -S all -T 120` | Save every detected signal (`g###_###M_###k.cu8`) for 2 minutes. |
+| `rtl_433_tx -K FILE -r file_name` | Decode a saved file and tag the output with its file name. |
+| `rtl_433_tx -F json -M utc \| mosquitto_pub -t home/rtl_433_tx -l` | Publish JSON output over MQTT (test client: `examples/mqtt_rtl_433_test_client.py`). |
+| `rtl_433_tx -F capture:caps.json` | Record decoded transmissions to a capture file. |
+| `rtl_433_tx -j caps.json -d driver=hackrf -g 20` | Re-transmit recorded captures on a HackRF. |
+| `rtl_433_tx -j caps.json -e pressure_PSI=31 -o edited.cu8` | Edit a capture and write the result to an IQ file. |
+
+## Recording, editing and re-transmitting
+
+The workflow has three steps: record transmissions to a capture file, edit them
+if you want to, then send them again.
+
+### Capture files
+
+A capture file is line-delimited JSON, with one capture object per line. Each
+capture holds:
+
+- metadata: protocol, modulation, frequency, sample rate and timing
+- the raw pulse train (`pulses_us`)
+- the raw demodulated bits (`rows`)
+- the decoded fields as editable text (`decoded`)
+
+### 1. Record
+
+Add `-F capture[:<filename>]` to any receive or file replay command. Each
+decoded transmission is appended to the capture file (default
+`rtl_433_capture.json`).
+
+    rtl_433_tx -F capture:caps.json
+    rtl_433_tx -r signal.cu8 -s 250000 -F capture:caps.json   # record from a saved IQ file
+
+### 2. Re-transmit
+
+`-j <file>` switches to transmit mode and processes each capture in the file.
+
+**To an SDR:** without `-o`, captures are sent with the SDR selected by `-d`.
+The center frequency comes from the capture, and `-g` sets the TX gain.
+
+    rtl_433_tx -j caps.json -d driver=hackrf -g 20
+
+**To a file:** with `-o`, the output is written to a file instead:
+
+| `-o` extension | Result |
+|----------------|--------|
+| `.cu8` / `.cs16` / `.cf32` | IQ sample file. Use it with `hackrf_transfer` or GNU Radio, or read it back with `rtl_433_tx -r`. |
+| `.json` | A new capture file, useful for saving edits. |
+
+    rtl_433_tx -j caps.json -o out.cu8           # synthesize an IQ file
+    rtl_433_tx -r out.cu8 -s 250000 -F json      # check that it decodes back
+
+### TX gain limit
+
+TX gain is capped at **23 dB** by default, and larger `-g` values are clamped
+with a warning. On a HackRF One (via SoapyHackRF), an overall TX gain above
+23 dB turns on the TX RF amplifier (MGA-81563). This is the part that most often
+fails on HackRF boards (see
+[greatscottgadgets/hackrf#974](https://github.com/greatscottgadgets/hackrf/issues/974)).
+Up to 23 dB only the IF VGA is used and the amplifier stays bypassed.
+
+`--fry-my-amp` removes the cap. **Only use it if you know what you are doing.**
+With the TX RF amp on, a bad match reflects power back into the amp and can
+destroy it. A bad match includes no antenna, the wrong antenna, or a direct
+connection to another receiver. Always transmit into a matched 50 Ω antenna or
+a dummy load/attenuator. Higher gain also produces more harmonics and spurious
+emissions, which may be illegal. You alone are responsible for any hardware
+damage or regulatory trouble.
+
+### 3. Edit
+
+`-e <key>=<value>` (repeatable) changes a decoded field before the raw data is
+rebuilt:
+
+    # Lower a captured Toyota TPMS pressure and transmit it
+    rtl_433_tx -j caps.json -e pressure_PSI=31 -d driver=hackrf -g 20
+
+    # Same edit, but write an IQ file and confirm it decodes to the new value
+    rtl_433_tx -j caps.json -e pressure_PSI=31 -o edited.cu8
+    rtl_433_tx -r edited.cu8 -s 250000 -F json
+
+Three special keys change the transmission itself:
+
+| Key | Effect |
+|-----|--------|
+| `freq_hz` | Transmit frequency in Hz |
+| `sample_rate` | Sample rate of the generated signal |
+| `repeats` | Number of times the frame is sent |
+
+You can also edit the capture file in a text editor. Change values in a
+capture's `"decoded"` block (or its top-level `"freq_hz"`), save the file, and
+transmit it with `-j` as usual:
+
+    # After editing "pressure_PSI" in caps.json by hand:
+    rtl_433_tx -j caps.json -d driver=hackrf -g 20
+
+How edits are applied depends on the device:
+
+- **Devices with an [encoder](#supported-encoders):** the payload is always
+  rebuilt from the `"decoded"` values, so your edits are sent. The transmit log
+  shows `rebuilt via <device> encoder`.
+- **All other devices:** `"decoded"` edits (from the file or `-e`) are ignored
+  and the raw bits in `"rows"` are replayed. Edit `"rows"` directly instead.
+
+### Tips
+
+- An IQ file written with `-o` uses the capture's own sample rate, and `-s` is
+  ignored. To change it, use `-e sample_rate=N` and read the file back at that
+  rate.
+- Fast FSK protocols, such as BMW/Continental and Mercedes-Benz TPMS with 25 µs
+  bits, need `-e sample_rate=1000000` (and `-s 1000k` on the receiver) to
+  decode reliably.
+- Decoders that are disabled by default (e.g. Jeep TPMS) are enabled
+  automatically for transmit when a capture names them.
+- Weather station consoles only accept the sensor ID and channel they have
+  learned, and the real sensor's next transmission overwrites the spoofed
+  values. Remove the sensor's batteries while you test.
+
+### Legal notice
+
+Transmitting on ISM and other bands, and spoofing device data such as TPMS
+frames, may be regulated or prohibited where you live. Only transmit on
+frequencies and with equipment you are authorized to use.
+
+## Supported encoders
+
+An encoder rebuilds a device's payload from (edited) decoded values. It
+recalculates the CRC or checksum and checks the result by decoding it again.
+Values are rounded to what the protocol can represent (e.g. pressure steps),
+and the capture is updated with the value actually sent.
+
+Rebuilt PPM/PWM signals use the symbol timing measured from the capture's
+`pulses_us` (pulse width, short/long gaps or pulses, row gap) instead of the
+decoder's nominal widths. This keeps strict hardware receivers, such as weather
+station consoles, happy.
+
+Devices without an encoder fall back to raw-bit replay.
+
+### Weather sensors
+
+| Protocol | Device | Notes |
+|:--------:|--------|-------|
+| 19 | Nexus, FreeTec NC-7345, TFA 30.3209 (`Nexus-TH` / `Nexus-T`) | |
+| 55 | Acurite 606TX / Technoline TX960 | |
+| 91 | inFactory, nor-tec, FreeTec NC-3982-913 (`inFactory-TH`) | |
+| 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
+
+### TPMS
+
+| Protocol | Device | Notes |
+|:--------:|--------|-------|
+| 82 | Citroen | |
+| 88 | Toyota | |
+| 89 | Ford | |
+| 90 | Renault | |
+| 110 | PMV-107J (Toyota) | |
+| 123 | Jansite TY02S | Checksum unknown; kept unless `code` is edited |
+| 140 | Elantra2012 | |
+| 156 | Abarth 124 Spider / Shenzhen EGQ Q85 | |
+| 180 | Jansite Solar | |
+| 186 | Hyundai VDO | |
+| 201 | Unbranded SolarTPMS for trucks | |
+| 203 | Porsche Boxster/Cayman | |
+| 208 | AVE | |
+| 212 | Renault 0435R | |
+| 225 | TyreGuard 400 | |
+| 226 | Kia Rio III | Needs `-s 1000k` |
+| 241 | EezTire E618 / Carchet / TST-507 | |
+| 248 | Nissan | |
+| 252 | BMW Gen4/Gen5, Audi Pressure Alert | 25 µs bits, use `sample_rate=1000000` |
+| 257 | BMW Gen2/Gen3 | |
+| 275 | GM-Aftermarket | |
+| 295 | Airpuxem TYH11_EU6_ZQ | |
+| 298 / 299 | TRW (OOK and FSK) | |
+| 321 | Schrader Motorcycle | |
+| 322 | Gear Hive | |
+| 343 | SmarTire Vantage / Aston Martin DB9 | |
+| 354 | iMars T240 | Only `code` is editable |
+| 355 | Jansite TY-468-eu2 / KKMOON | |
+| 362 | Jansite TY588-EU2 | |
+| 365 | Mercedes-Benz Sprinter | 25 µs bits, use `sample_rate=1000000` |
+| 378 | Sefis M3 / Careud / Sykik SRTP300 | |
+| 380 | Jeep | Disabled by default for receive |
+| 381 | Honda (TRW PPA-GF33) | |
+
+## Command-line reference
+
+<details>
+<summary>Full <code>rtl_433_tx -h</code> output, including all supported device protocols</summary>
 
 ```
 
@@ -696,164 +906,7 @@ E.g. -X "n=doorbell,m=OOK_PWM,s=400,l=800,r=7000,g=1000,match={24}0xa9878c,repea
 
 ```
 
-Some examples:
-
-| Command | Description
-|---------|------------
-| `rtl_433_tx` | Default receive mode, use the first device found, listen at 433.92 MHz at 250k sample rate.
-| `rtl_433_tx -C si` | Default receive mode, also convert units to metric system.
-| `rtl_433_tx -f 868M -s 1024k` | Listen at 868 MHz and 1024k sample rate.
-| `rtl_433_tx -M hires -M level` | Report microsecond accurate timestamps and add reception levels (depending on gain).
-| `rtl_433_tx -R 1 -R 8 -R 43` | Enable only specific decoders for desired devices.
-| `rtl_433_tx -R -216 -R 216` | Enable all default decoders plus a decoder disabled by default (216).
-| `rtl_433_tx -A` | Enable pulse analyzer. Summarizes the timings of pulses, gaps, and periods. Can be used with `-R 0` to disable decoders.
-| `rtl_433_tx -S all -T 120` | Save all detected signals (`g###_###M_###k.cu8`). Run for 2 minutes.
-| `rtl_433_tx -K FILE -r file_name` | Read a saved data file instead of receiving live data. Tag output with filenames.
-| `rtl_433_tx -F json -M utc \| mosquitto_pub -t home/rtl_433_tx -l` | Will pipe the output to network as JSON formatted MQTT messages. A test MQTT client can be found in `examples/mqtt_rtl_433_test_client.py`.
-| `rtl_433_tx -f 433.53M -f 434.02M -H 15` | Will poll two frequencies with 15 seconds hop interval.
-
-## Recording, editing and re-transmitting
-
-This fork can record received transmissions, edit their decoded values while
-reconstructing matching raw data, and re-transmit the original or edited
-recording over a TX-capable SDR (e.g. HackRF One via SoapySDR) or to an IQ file.
-
-> **Note:** this fork builds and installs its binary as `rtl_433_tx` (the man
-> page is installed as `rtl_433_tx.1`). The examples below use that name.
-
-A **capture file** is line-delimited JSON (one capture object per line). Each
-capture stores the metadata (protocol, modulation, frequency, sample rate,
-timing), the raw pulse train, the raw demodulated bits, and the decoded fields
-as editable text.
-
-### 1. Record
-
-Add `-F capture[:<filename>]` to any normal receive (or file replay) command.
-Every successfully decoded transmission is appended to the capture file
-(default `rtl_433_capture.json`).
-
-    rtl_433_tx -F capture:caps.json
-    rtl_433_tx -r signal.cu8 -s 250000 -F capture:caps.json   # record from a saved IQ file
-
-### 2. Re-transmit (replay)
-
-`-j <file>` enters transmit mode and processes each capture in the file. With no
-`-o`, it transmits over the SDR selected with `-d` (center frequency comes from
-the capture, overridable per the edit keys below; use `-g` for TX gain):
-
-    rtl_433_tx -j caps.json -d driver=hackrf -g 20
-
-TX gain is capped at **23 dB** by default. On a HackRF One (via SoapyHackRF) an
-overall TX gain above 23 dB switches on the TX RF amplifier (MGA-81563), which
-is the part most commonly destroyed on HackRF boards (see
-[greatscottgadgets/hackrf#974](https://github.com/greatscottgadgets/hackrf/issues/974)).
-Up to 23 dB only the IF VGA is used and the amp stays bypassed. Larger `-g`
-values are clamped with a warning.
-
-> [!CAUTION]
-> `--fry-my-amp` lifts the cap. Use it only if you know what you are
-> doing: with the TX RF amp on, a bad match (no antenna, wrong antenna, or
-> straight into another receiver) reflects power back into the amp and can
-> kill it. Always transmit into a matched 50 Ω antenna or dummy load/attenuator.
-> Higher gain also means
-> more harmonics/spurious emissions that may be illegal. Any damage to your
-> hardware, or trouble with your regulator, is entirely your own fault.
-
-With `-o`, it writes to a file instead of transmitting:
-
-| `-o` extension | Result |
-|----------------|--------|
-| `.cu8` / `.cs16` / `.cf32` | IQ sample file (feed to `hackrf_transfer`, GNU Radio, or replay with `rtl_433_tx -r`) |
-| `.json` | A new capture file (useful to save edits) |
-
-    rtl_433_tx -j caps.json -o out.cu8                 # synthesize an IQ file
-    rtl_433_tx -r out.cu8 -s 250000 -F json            # verify it decodes back
-
-### 3. Edit then re-transmit
-
-`-e <key>=<value>` (repeatable) edits a decoded field before rebuilding the raw
-data. For devices that provide an encoder (e.g. Toyota TPMS), the raw bits are
-reconstructed from the edited values (recomputing CRCs etc.) and verified by
-decoding them again. For devices without a dedicated encoder, a generic
-bit-level rebuild / replay is used.
-
-    # Lower a captured Toyota TPMS pressure by 1 psi and transmit it
-    rtl_433_tx -j caps.json -e pressure_PSI=31 -d driver=hackrf -g 20
-
-    # Same edit, but write an IQ file and confirm it decodes to the new value
-    rtl_433_tx -j caps.json -e pressure_PSI=31 -o edited.cu8
-    rtl_433_tx -r edited.cu8 -s 250000 -F json
-
-Besides decoded fields, three special keys adjust the transmission itself:
-`freq_hz`, `sample_rate`, and `repeats` (number of times to send the frame).
-
-**Editing the capture file directly:** instead of `-e`, you can simply open the
-capture file in a text editor, change values in a capture's `"decoded"` block
-(or its top-level `"freq_hz"`), save it, and transmit it with `-j` as usual.
-For devices with a dedicated encoder (see below) the payload is always
-rebuilt from the `"decoded"` values, so your edits are what gets sent. For
-devices without an encoder, `"decoded"` edits (in the file or via `-e`) are
-ignored and the raw bits in `"rows"` are replayed; edit `"rows"` itself in that
-case. Watch the transmit log: `rebuilt via <device> encoder` means your edits
-were applied.
-
-    # Edit "pressure_PSI" in caps.json by hand, then:
-    rtl_433_tx -j caps.json -d driver=hackrf -g 20
-
-> **Note:** dedicated encoders (rebuilding the payload and its CRC/checksum,
-> verified by decoding it again) are implemented for:
->
-> - Weather: **Hyundai WS SENZOR** (`Hyundai-WS`), **Nexus / FreeTec NC-7345 /
->   TFA 30.3209** (`Nexus-TH`/`Nexus-T`), **Acurite 606TX**, **inFactory /
->   nor-tec NC-3982-913** (`inFactory-TH`)
-> - TPMS: **Abarth 124 Spider / Shenzhen EGQ Q85**, **Airpuxem TYH11_EU6_ZQ**,
->   **AVE**, **BMW Gen2/Gen3**, **BMW Gen4/Gen5 and Audi Pressure Alert**,
->   **Citroen**, **EezTire E618 / Carchet / TST-507**, **Elantra2012**,
->   **Ford**, **Gear Hive**, **GM-Aftermarket**, **Honda TRW**, **Hyundai VDO**,
->   **iMars T240** (`code` only), **Jansite Solar**, **Jansite TY-468-eu2 /
->   KKMOON**, **Jansite TY02S** (checksum unknown, kept unless `code` is
->   edited), **Jansite TY588-EU2**, **Jeep**, **Kia Rio III**, **Mercedes-Benz
->   Sprinter**, **Nissan**, **PMV-107J**, **Porsche Boxster/Cayman**,
->   **Renault**, **Renault 0435R**, **Schrader Motorcycle**, **Sefis M3 / Careud
->   / Sykik SRTP300**, **SmarTire Vantage / Aston Martin DB9**, **Toyota**,
->   **TRW (OOK and FSK)**, **TyreGuard 400**, **Unbranded SolarTPMS for trucks**
->
-> All other devices fall back to generic raw-bit replay. Values are quantized
-> to what the protocol can represent (e.g. pressure steps); the capture is
-> updated with the value actually sent.
->
-> Rebuilt PPM/PWM signals reuse the symbol timing measured from the capture's
-> `pulses_us` (pulse width, short/long gaps or pulses, row gap) instead of the
-> decoder's nominal widths, so strict hardware receivers (weather station
-> consoles) accept them. Consoles only accept the sensor ID/channel they
-> learned, and the real sensor's next transmission overwrites the spoofed
-> values, so remove its batteries while testing.
-
-> **Tip:** an IQ file written with `-o` uses the capture's own sample rate
-> (`-s` is ignored); override it with `-e sample_rate=N` and read the file back
-> at that rate. Fast FSK protocols (e.g. BMW/Continental and Mercedes-Benz
-> TPMS, 25 µs bits) need `-e sample_rate=1000000` (and `-s 1000k` on the
-> receiver) to decode reliably. Disabled-by-default decoders (e.g. Jeep TPMS) are enabled
-> automatically for transmit when the capture names them.
-
-> **Legal notice:** transmitting on ISM and other bands (and spoofing device
-> data such as TPMS frames) may be regulated or prohibited in your jurisdiction.
-> Only transmit on frequencies and with equipment you are authorized to use.
-
-## Security
-
-Please note: We aim to make `rtl_433_tx` safe to use, but it should not be assumed secure.
-There is no reason to e.g. run with `sudo`, we do read and write files without any checks.
-
-The output is literally pulled from thin air, it's not to be trusted.
-If you feed downstream systems with data make sure edge cases are checked and handled.
-Network inputs and outputs are for use in a trusted local network, will contain unfiltered data, and might overload the recipient
-(know that e.g. the MQTT output can be controlled by anyone with a radio sender).
-
-## Google Group
-
-Join the Google group, rtl_433, for more information about rtl_433:
-https://groups.google.com/forum/#!forum/rtl_433
+</details>
 
 ## Troubleshooting
 
@@ -863,16 +916,37 @@ If you see this error:
     In the first case, please either detach or blacklist the kernel module
     (dvb_usb_rtl28xxu), or enable automatic detaching at compile time.
 
-then
+unload the DVB kernel modules:
 
     sudo rmmod rtl2832_sdr dvb_usb_rtl28xxu rtl2832
 
-or add
+or blacklist the driver permanently by adding this line to
+`/etc/modprobe.d/blacklist.conf`:
 
     blacklist dvb_usb_rtl28xxu
 
-to /etc/modprobe.d/blacklist.conf
+## Security
 
-## Releases
+We aim to make `rtl_433_tx` safe to use, but you should not assume it is
+secure. There is no reason to run it with `sudo`. It reads and writes files
+without any checks.
 
-Version numbering scheme used is year.month. We try to keep the API compatible between releases but focus is on maintainablity.
+The output is literally pulled from thin air, so don't trust it. If you feed it
+to other systems, make sure they check for and handle edge cases. Network
+inputs and outputs are meant for a trusted local network. They carry unfiltered
+data and might overload the recipient. Keep in mind that anyone with a radio
+transmitter can control what, for example, the MQTT output sends.
+
+## Contributing
+
+To add support for a new sensor, see [CONTRIBUTING.md](./docs/CONTRIBUTING.md).
+
+Versions are numbered year.month. We try to keep the API compatible between
+releases, but the focus is on maintainability.
+
+## Upstream and related projects
+
+- Upstream source code: https://github.com/merbanan/rtl_433/
+- [Software that works with rtl_433](https://github.com/merbanan/rtl_433/wiki/Built-with-rtl_433!) (wiki)
+- https://triq.org/ for more documentation and projects related to rtl_433
+  development
