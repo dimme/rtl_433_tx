@@ -13,6 +13,12 @@ help with rtl_433 development, see the https://triq.org/ site.
 It works with [RTL-SDR](https://github.com/osmocom/rtl-sdr/) and/or [SoapySDR](https://github.com/pothosware/SoapySDR/).
 Actively tested and supported are Realtek RTL2832 based DVB dongles (using RTL-SDR) and LimeSDR ([LimeSDR USB](https://www.crowdsupply.com/lime-micro/limesdr) and [LimeSDR mini](https://www.crowdsupply.com/lime-micro/limesdr-mini) engineering samples kindly provided by [MyriadRf](https://myriadrf.org/)), PlutoSDR, HackRF One (using SoapySDR drivers), as well as SoapyRemote.
 
+> **This fork (`rtl_433_tx`)** additionally lets you **record** received transmissions
+> (raw pulses, raw bits, and decoded values), **edit** the decoded values and reconstruct
+> the raw data, and **re-transmit** original or edited recordings via a TX-capable SDR
+> (e.g. HackRF One via SoapySDR) or to an IQ file.
+> See [Recording, editing and re-transmitting](#recording-editing-and-re-transmitting).
+
 ![rtl_433 screenshot](./docs/screenshot.png)
 
 ## Building
@@ -92,6 +98,11 @@ See [CONTRIBUTING.md](./docs/CONTRIBUTING.md).
   [-M time[:<options>] | protocol | level | noise[:<secs>] | stats | bits | help] Add various meta data to each output.
   [-K FILE | PATH | <tag> | <key>=<tag>] Add an expanded token or fixed tag to every output line.
   [-C native | si | customary] Convert units in decoded output.
+		= Record / Edit / Re-transmit options =
+  [-F capture[:<filename>]] Record received transmissions (raw pulses, bits, decoded values) to a JSON capture file (default: rtl_433_capture.json).
+  [-j <filename>] Transmit (re-send) captures from a JSON capture file (enters transmit mode).
+  [-e <key>=<value>] Edit a decoded field before transmit (repeatable). Special keys: freq_hz, sample_rate, repeats.
+  [-o <filename>] Transmit output target: .json writes an (edited) capture, .cu8/.cs16/.cf32 writes an IQ file; omit to transmit via SDR (-d/-f/-s/-g).
   [-n <value>] Specify number of samples to take (each sample is an I/Q pair)
   [-T <seconds>] Specify number of seconds to run, also 12:34 or 1h23m45s
   [-E hop | quit] Hop/Quit after outputting successful event(s)
@@ -691,6 +702,70 @@ Some examples:
 | `rtl_433 -K FILE -r file_name` | Read a saved data file instead of receiving live data. Tag output with filenames.
 | `rtl_433 -F json -M utc \| mosquitto_pub -t home/rtl_433 -l` | Will pipe the output to network as JSON formatted MQTT messages. A test MQTT client can be found in `examples/mqtt_rtl_433_test_client.py`.
 | `rtl_433 -f 433.53M -f 434.02M -H 15` | Will poll two frequencies with 15 seconds hop interval.
+
+## Recording, editing and re-transmitting
+
+This fork can record received transmissions, edit their decoded values while
+reconstructing matching raw data, and re-transmit the original or edited
+recording over a TX-capable SDR (e.g. HackRF One via SoapySDR) or to an IQ file.
+
+A **capture file** is line-delimited JSON (one capture object per line). Each
+capture stores the metadata (protocol, modulation, frequency, sample rate,
+timing), the raw pulse train, the raw demodulated bits, and the decoded fields
+as editable text.
+
+### 1. Record
+
+Add `-F capture[:<filename>]` to any normal receive (or file replay) command.
+Every successfully decoded transmission is appended to the capture file
+(default `rtl_433_capture.json`).
+
+    rtl_433 -F capture:caps.json
+    rtl_433 -r signal.cu8 -s 250000 -F capture:caps.json   # record from a saved IQ file
+
+### 2. Re-transmit (replay)
+
+`-j <file>` enters transmit mode and processes each capture in the file. With no
+`-o`, it transmits over the SDR selected with `-d` (center frequency comes from
+the capture, overridable per the edit keys below; use `-g` for TX gain):
+
+    rtl_433 -j caps.json -d driver=hackrf -g 20
+
+With `-o`, it writes to a file instead of transmitting:
+
+| `-o` extension | Result |
+|----------------|--------|
+| `.cu8` / `.cs16` / `.cf32` | IQ sample file (feed to `hackrf_transfer`, GNU Radio, or replay with `rtl_433 -r`) |
+| `.json` | A new capture file (useful to save edits) |
+
+    rtl_433 -j caps.json -o out.cu8                 # synthesize an IQ file
+    rtl_433 -r out.cu8 -s 250000 -F json            # verify it decodes back
+
+### 3. Edit then re-transmit
+
+`-e <key>=<value>` (repeatable) edits a decoded field before rebuilding the raw
+data. For devices that provide an encoder (e.g. Toyota TPMS), the raw bits are
+reconstructed from the edited values (recomputing CRCs etc.) and verified by
+decoding them again. For devices without a dedicated encoder, a generic
+bit-level rebuild / replay is used.
+
+    # Lower a captured Toyota TPMS pressure by 1 psi and transmit it
+    rtl_433 -j caps.json -e pressure_PSI=31 -d driver=hackrf -g 20
+
+    # Same edit, but write an IQ file and confirm it decodes to the new value
+    rtl_433 -j caps.json -e pressure_PSI=31 -o edited.cu8
+    rtl_433 -r edited.cu8 -s 250000 -F json
+
+Besides decoded fields, three special keys adjust the transmission itself:
+`freq_hz`, `sample_rate`, and `repeats` (number of times to send the frame).
+
+> **Note:** correct dedicated encoders are provided per device where
+> implemented, with **Toyota TPMS** as the full-fidelity reference; all other
+> devices fall back to generic replay / bit-level editing.
+
+> **Legal notice:** transmitting on ISM and other bands (and spoofing device
+> data such as TPMS frames) may be regulated or prohibited in your jurisdiction.
+> Only transmit on frequencies and with equipment you are authorized to use.
 
 ## Security
 
