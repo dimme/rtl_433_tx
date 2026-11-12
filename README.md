@@ -808,7 +808,7 @@ were applied.
 >   nor-tec NC-3982-913** (`inFactory-TH`)
 > - TPMS: **Abarth 124 Spider / Shenzhen EGQ Q85**, **BMW Gen4/Gen5 and Audi
 >   Pressure Alert**, **BMW Gen2/Gen3**, **Airpuxem TYH11_EU6_ZQ**, **AVE**, **Citroen**, **EezTire E618 / Carchet / TST-507**,
->   **Elantra2012**, **Ford**, **Gear Hive**, **GM-Aftermarket**, **Honda TRW**, **Hyundai VDO**,
+>   **Elantra2012**, **Ford**, **Gear Hive**, **GM-Aftermarket**, **Honda TRW**, **Hyundai VDO**, **iMars T240** (`code` only),
 >   **Jansite Solar**, **Jansite TY02S** (checksum unknown, kept unless `code` is edited),
 >   **Jansite TY588-EU2**, **Jeep**, **Kia Rio III**, **Nissan**, **PMV-107J**, **Porsche Boxster/Cayman**, **Renault**, **Renault 0435R**, **Schrader
 >   Motorcycle**, **Sefis M3 / Careud / Sykik SRTP300**, **Toyota**, **TRW (OOK
