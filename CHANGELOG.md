@@ -8,6 +8,7 @@
 - Fixed OOK PPM encoding losing the last bit of each row (the reset gap was merged into the final data gap) by appending a terminator pulse per row.
 - Fixed multi-row OOK messages being split into separate transmissions by using an inter-row separator gap between the data-symbol width and reset_limit, so repeated rows stay in one bitbuffer for decoders that require several repeats (e.g. Acurite 606).
 - Changed the default transmit repeats from 1 to 3 so short single-frame captures are received reliably; override with `-e repeats=N`.
+- Raised the default transmit baseband amplitude from 0.85 to 0.98 of full scale for a few dB more radiated power. Constant-envelope FSK never clips and OOK edges stay ramped, so this is safe while helping reception from weak TX SDRs (e.g. HackRF) where output power is already marginal.
 - Fixed transmit ignoring values edited directly in a capture file's `decoded` block. The un-edited replay path regenerated pulses from the stored raw bits, so edits made in the file (e.g. changing a Toyota TPMS `temperature_C`) were silently discarded and the originally recorded values were re-sent. Transmit now rebuilds the payload via the device encoder whenever one exists, so decoded fields edited in the file (not just via `-e`) are honored, with a fallback to raw-bit/pulse replay when no encoder is available or re-encoding fails verification.
 
 ## Release 25.12 (2025-12-12)
