@@ -1614,7 +1614,16 @@ static int run_transmit(r_cfg_t *cfg)
                 cap.freq_hz = (uint32_t)strtoul(val, NULL, 0);
             }
             else if (!strcmp(key, "sample_rate")) {
-                cap.sample_rate = (uint32_t)strtoul(val, NULL, 0);
+                uint32_t new_rate = (uint32_t)strtoul(val, NULL, 0);
+                // keep the recorded pulse widths in real time at the new rate
+                if (new_rate && cap.pulses.sample_rate && new_rate != cap.pulses.sample_rate) {
+                    double k = (double)new_rate / cap.pulses.sample_rate;
+                    for (unsigned n = 0; n < cap.pulses.num_pulses; ++n) {
+                        cap.pulses.pulse[n] = (int)(cap.pulses.pulse[n] * k + 0.5);
+                        cap.pulses.gap[n]   = (int)(cap.pulses.gap[n] * k + 0.5);
+                    }
+                }
+                cap.sample_rate = new_rate;
                 cap.pulses.sample_rate = cap.sample_rate;
             }
             else if (!strcmp(key, "repeats")) {

@@ -821,6 +821,13 @@ were applied.
 > All other devices fall back to generic raw-bit replay. Values are quantized
 > to what the protocol can represent (e.g. pressure steps); the capture is
 > updated with the value actually sent.
+>
+> Rebuilt PPM/PWM signals reuse the symbol timing measured from the capture's
+> `pulses_us` (pulse width, short/long gaps or pulses, row gap) instead of the
+> decoder's nominal widths, so strict hardware receivers (weather station
+> consoles) accept them. Consoles only accept the sensor ID/channel they
+> learned, and the real sensor's next transmission overwrites the spoofed
+> values, so remove its batteries while testing.
 
 > **Tip:** an IQ file written with `-o` uses the capture's own sample rate
 > (`-s` is ignored); override it with `-e sample_rate=N` and read the file back
