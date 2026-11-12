@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /** @fn static int tpms_sefis_m3_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 Sefis M3 / Careud / Sykik SRTP300 TPMS, built around an Infineon SP400 (8051
@@ -136,6 +139,114 @@ static int tpms_sefis_m3_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+static int sefis_m3_page(uint8_t b4)
+{
+    switch (b4 >> 5) {
+    case 7: return 0;
+    case 4: return 1;
+    case 5: return 2;
+    case 2: return 3;
+    default: return -1;
+    }
+}
+
+static float sefis_m3_pressure(uint8_t const *b)
+{
+    int page = sefis_m3_page(b[4]);
+    if (page < 0)
+        return -1.0f;
+    int code  = (page << 13) | ((b[4] & 0x1f) << 8) | b[5];
+    float kpa = (code - 0x0e00) / 102.4f;
+    return kpa < 0.0f ? 0.0f : kpa;
+}
+
+static int sefis_m3_temperature(uint8_t const *b)
+{
+    return 14 + ((b[2] + b[5]) & 0x0f);
+}
+
+/** Encoder: inverse of tpms_sefis_m3_decode().
+
+    Starts from the "code" bytes B0-B6 (so raw edits are possible), then
+    applies pressure and temperature only if they were edited (differ from
+    the originally decoded values). Pressure picks the page and 13-bit
+    offset; temperature (14..29 C) adjusts the low nibble of B2.
+*/
+static int tpms_sefis_m3_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    static uint8_t const page_bits[4] = {7, 4, 5, 2};
+
+    if (cap->bits.num_rows != 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+    unsigned pos     = bitbuffer_search(&bits, 0, 0, sefis_m3_sync, SEFIS_M3_SYNC_BITS);
+    if (pos + SEFIS_M3_FRAME_BITS > bits.bits_per_row[0])
+        return -1;
+    pos += SEFIS_M3_SYNC_BITS;
+
+    bitbuffer_t packet = {0};
+    bitbuffer_manchester_decode(&bits, 0, pos, &packet, SEFIS_M3_PAYLOAD_BITS);
+    if (packet.bits_per_row[0] < SEFIS_M3_PAYLOAD_BITS)
+        return -1;
+    uint8_t orig[SEFIS_M3_PAYLOAD_BYTES];
+    for (int i = 0; i < SEFIS_M3_PAYLOAD_BYTES; i++)
+        orig[i] = packet.bb[0][i] ^ 0xff;
+    uint8_t b[SEFIS_M3_PAYLOAD_BYTES];
+    memcpy(b, orig, sizeof(b));
+
+    char const *f = capture_get_field(cap, "code");
+    if (f && strlen(f) == 14) {
+        for (int i = 0; i < 7; i++) {
+            char h[3] = {f[2 * i], f[2 * i + 1], 0};
+            b[i]      = (uint8_t)strtoul(h, NULL, 16);
+        }
+    }
+
+    double d;
+    int p_edited = 0;
+    if (encoder_field_dbl(cap, "pressure_kPa", &d) && fabs(d - sefis_m3_pressure(orig)) > 1e-3) {
+        long code = lround(d * 102.4) + 0x0e00;
+        code      = code < 0x0e00 ? 0x0e00 : code > 0x7fff ? 0x7fff : code;
+        b[4]      = (uint8_t)(page_bits[code >> 13] << 5 | ((code >> 8) & 0x1f));
+        b[5]      = (uint8_t)code;
+        p_edited  = 1;
+    }
+    int set_t = 0;
+    long t    = 0;
+    if (encoder_field_dbl(cap, "temperature_C", &d) && lround(d) != sefis_m3_temperature(orig)) {
+        t     = lround(d) - 14;
+        set_t = 1;
+    }
+    else if (p_edited) {
+        t     = sefis_m3_temperature(orig) - 14; // B5 changed: keep the temperature
+        set_t = 1;
+    }
+    if (set_t) {
+        t    = t < 0 ? 0 : t > 15 ? 15 : t;
+        b[2] = (uint8_t)((b[2] & 0xf0) | ((t - b[5]) & 0x0f));
+    }
+
+    float kpa = sefis_m3_pressure(b);
+    if (kpa >= 0.0f)
+        encoder_set_dbl(cap, "pressure_kPa", (double)kpa);
+    else
+        capture_del_field(cap, "pressure_kPa");
+    encoder_set_dbl(cap, "temperature_C", sefis_m3_temperature(b));
+
+    uint16_t crc = crc16(b, 7, 0x1021, 0x0000);
+    b[7]         = (uint8_t)(crc >> 8);
+    b[8]         = (uint8_t)crc;
+    encoder_manchester_encode(bits.bb[0], pos, b, SEFIS_M3_PAYLOAD_BITS, 1);
+
+    char code_str[15];
+    snprintf(code_str, sizeof(code_str), "%02x%02x%02x%02x%02x%02x%02x",
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6]);
+    capture_set_field(cap, "code", code_str);
+
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -153,5 +264,6 @@ r_device const tpms_sefis_m3 = {
         .long_width  = 52,
         .reset_limit = 5000,
         .decode_fn   = &tpms_sefis_m3_decode,
+        .encode_fn   = &tpms_sefis_m3_encode,
         .fields      = output_fields,
 };
