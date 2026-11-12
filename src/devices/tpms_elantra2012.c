@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /**
 FSK 8 byte Manchester encoded TPMS with CRC8 checksum.
@@ -125,6 +128,94 @@ static int tpms_elantra2012_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return events > 0 ? events : ret;
 }
 
+/** Encoder: inverse of tpms_elantra2012_decode().
+
+    For each preamble with a valid payload, patches pressure, temperature, id
+    and flags, recomputes the CRC-8 and re-encodes the Manchester payload in
+    place. Edits to battery_ok / triggered / storage (with flags unchanged)
+    are folded into the flags; all flag display fields are then re-derived.
+*/
+static int tpms_elantra2012_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[] = {0x71, 0x55};
+
+    bitbuffer_t src = cap->bits;
+    char const *f;
+    int v;
+    double d;
+    int found = 0;
+    int flags = 0;
+
+    for (unsigned row = 0; row < src.num_rows; ++row) {
+        unsigned bitpos = 0;
+        while ((bitpos = bitbuffer_search(&src, row, bitpos, preamble_pattern, 16)) + 128 <= src.bits_per_row[row]) {
+            unsigned start = bitpos + 16;
+            bitpos += 15;
+            bitbuffer_t packet = {0};
+            bitbuffer_manchester_decode(&src, row, start, &packet, 64);
+            if (packet.bits_per_row[0] < 64)
+                continue;
+            uint8_t b[8];
+            memcpy(b, packet.bb[0], 8);
+            if (crc8(b, 8, 0x07, 0x00))
+                continue;
+
+            if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+                long p = lround(d) - 60;
+                b[0] = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+                encoder_set_dbl(cap, "pressure_kPa", b[0] + 60);
+            }
+            if (encoder_field_dbl(cap, "temperature_C", &d)) {
+                long t = lround(d) + 50;
+                b[1] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+                encoder_set_dbl(cap, "temperature_C", b[1] - 50);
+            }
+            if ((f = capture_get_field(cap, "id"))) {
+                uint32_t id = (uint32_t)strtoul(f, NULL, 16);
+                b[2] = (uint8_t)(id >> 24);
+                b[3] = (uint8_t)(id >> 16);
+                b[4] = (uint8_t)(id >> 8);
+                b[5] = (uint8_t)id;
+            }
+            int orig = b[6];
+            flags    = orig;
+            if ((f = capture_get_field(cap, "flags")))
+                flags = (int)strtoul(f, NULL, 16) & 0xff;
+            if (flags == orig) {
+                if (encoder_field_int(cap, "battery_ok", &v) && !!v != !(orig & 0x02))
+                    flags = v ? (flags & ~0x02) : (flags | 0x02);
+                if (encoder_field_int(cap, "triggered", &v) && !!v != (orig & 0x01))
+                    flags = v ? (flags | 0x01) : (flags & ~0x01);
+                if (encoder_field_int(cap, "storage", &v) && !!v != ((orig >> 2) & 1))
+                    flags = v ? (flags | 0x04) : (flags & ~0x04);
+            }
+            b[6] = (uint8_t)flags;
+            b[7] = crc8(b, 7, 0x07, 0x00);
+
+            encoder_manchester_encode(src.bb[row], start, b, 64, 0);
+            found = 1;
+        }
+    }
+    if (!found)
+        return -1;
+
+    char tmp[8];
+    snprintf(tmp, sizeof(tmp), "%x", flags);
+    capture_set_field(cap, "flags", tmp);
+    snprintf(tmp, sizeof(tmp), "%d", !(flags & 0x02));
+    capture_set_field(cap, "battery_ok", tmp);
+    snprintf(tmp, sizeof(tmp), "%d", flags & 0x01);
+    capture_set_field(cap, "triggered", tmp);
+    snprintf(tmp, sizeof(tmp), "%d", (flags >> 2) & 1);
+    capture_set_field(cap, "storage", tmp);
+
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -146,5 +237,6 @@ r_device const tpms_elantra2012 = {
         .long_width  = 49,  // FSK
         .reset_limit = 200, // Maximum gap size before End Of Message [us].
         .decode_fn   = &tpms_elantra2012_callback,
+        .encode_fn   = &tpms_elantra2012_encode,
         .fields      = output_fields,
 };
