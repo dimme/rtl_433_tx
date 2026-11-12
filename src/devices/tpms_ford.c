@@ -52,6 +52,10 @@ Packet nibbles:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 static int tpms_ford_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigned row, unsigned bitpos)
 {
@@ -168,6 +172,94 @@ static int tpms_ford_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigned 
     return 1;
 }
 
+/** Encoder: inverse of tpms_ford_decode().
+
+    Starts from the captured 8 message bytes, patches the edited primary fields
+    (id, pressure, temperature, moving, learn), recomputes the derived display
+    fields (code, unknown, unknown_3) and the byte-sum checksum, then re-encodes
+    the Manchester payload in place keeping the captured preamble.
+*/
+static int tpms_ford_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    if (cap->bits.num_rows < 1)
+        return -1;
+
+    uint8_t const preamble_pattern[2] = {0xaa, 0xa9}; // inverted 55 56
+
+    bitbuffer_t src = cap->bits;
+    bitbuffer_t inv = src; // inverted copy to locate the preamble
+    bitbuffer_invert(&inv);
+    unsigned bitpos = bitbuffer_search(&inv, 0, 0, preamble_pattern, 16);
+    if (bitpos + 16 + 128 > src.bits_per_row[0])
+        return -1;
+    unsigned pstart = bitpos + 16;
+
+    // decode the original payload to obtain the 8 message bytes as a base
+    bitbuffer_t packet = {0};
+    bitbuffer_manchester_decode(&inv, 0, pstart, &packet, 160);
+    if (packet.bits_per_row[0] < 64)
+        return -1;
+    uint8_t b[8];
+    memcpy(b, packet.bb[0], 8);
+
+    char const *f;
+    if ((f = capture_get_field(cap, "id"))) {
+        unsigned id = (unsigned)strtoul(f, NULL, 16);
+        b[0] = (uint8_t)(id >> 24);
+        b[1] = (uint8_t)(id >> 16);
+        b[2] = (uint8_t)(id >> 8);
+        b[3] = (uint8_t)(id);
+    }
+    if ((f = capture_get_field(cap, "pressure_PSI"))) {
+        int psibits = (int)lround(atof(f) / 0.25);
+        if (psibits < 0) psibits = 0;
+        if (psibits > 0x1ff) psibits = 0x1ff;
+        b[4] = (uint8_t)(psibits & 0xff);
+        if (psibits & 0x100)
+            b[6] |= 0x20;
+        else
+            b[6] &= (uint8_t)~0x20;
+    }
+    if ((f = capture_get_field(cap, "temperature_C"))) {
+        int t = (int)lround(atof(f)) + 56;
+        if (t < 0) t = 0;
+        if (t > 0x7f) t = 0x7f;
+        b[5] = (uint8_t)(t & 0x7f); // clears 0x80 -> temperature valid
+    }
+    int moving = 0, learn = 0;
+    encoder_field_int(cap, "moving", &moving);
+    encoder_field_int(cap, "learn", &learn);
+    b[6] &= (uint8_t)~0x4c;
+    if (learn)
+        b[6] |= 0x08;
+    else if (moving)
+        b[6] |= 0x44;
+    else
+        b[6] |= 0x04;
+    b[6] &= (uint8_t)~0x90; // unknown bits must be 0
+
+    // recompute byte-sum checksum
+    b[7] = (uint8_t)((b[0] + b[1] + b[2] + b[3] + b[4] + b[5] + b[6]) & 0xff);
+
+    // re-derive display/redundant fields so verification matches
+    char tmp[16];
+    snprintf(tmp, sizeof(tmp), "%06x", (b[4] << 16) | (b[5] << 8) | b[6]);
+    capture_set_field(cap, "code", tmp);
+    capture_set_field(cap, "unknown", "00");
+    snprintf(tmp, sizeof(tmp), "%01x", b[6] & 0x3);
+    capture_set_field(cap, "unknown_3", tmp);
+
+    // re-encode 64 data bits as Manchester; decode inverts the whole buffer
+    // first, so emit (d, 1-d) half-bits (invert=1)
+    encoder_manchester_encode(src.bb[0], pstart, b, 64, 1);
+
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 /** @sa tpms_ford_decode() */
 static int tpms_ford_callback(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -220,5 +312,6 @@ r_device const tpms_ford = {
         .long_width  = 52,  // FSK
         .reset_limit = 150, // Maximum gap size before End Of Message [us].
         .decode_fn   = &tpms_ford_callback,
+        .encode_fn   = &tpms_ford_encode,
         .fields      = output_fields,
 };
