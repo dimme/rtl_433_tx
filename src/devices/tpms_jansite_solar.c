@@ -40,6 +40,9 @@ TODO: identify battery bits
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 static int tpms_jansite_solar_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigned row, unsigned bitpos)
 {
@@ -118,6 +121,89 @@ static int tpms_jansite_solar_callback(r_device *decoder, bitbuffer_t *bitbuffer
     return events > 0 ? events : ret;
 }
 
+/** Encoder: inverse of tpms_jansite_solar_decode().
+
+    Patches id, flags, temperature and pressure in every packet of row 0,
+    recomputes the CRC-16 and re-encodes the (inverted) Manchester payload.
+*/
+static int tpms_jansite_solar_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[3] = {0xa6, 0xa6, 0x5a};
+
+    if (cap->bits.num_rows < 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+
+    char const *f;
+    int v;
+    double d;
+    int have_id = 0, have_flags = 0, have_t = 0, have_p = 0;
+    unsigned id = 0;
+    uint8_t flags = 0, temp = 0, press = 0;
+    if ((f = capture_get_field(cap, "id"))) {
+        id      = (unsigned)strtoul(f, NULL, 16) & 0xffffff;
+        have_id = 1;
+    }
+    if (encoder_field_int(cap, "flags", &v)) {
+        flags      = (uint8_t)v;
+        have_flags = 1;
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d) + 55;
+        temp   = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+        have_t = 1;
+        encoder_set_dbl(cap, "temperature_C", temp - 55.0);
+    }
+    if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+        long p = lround(d / 1.6);
+        press  = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+        have_p = 1;
+        encoder_set_dbl(cap, "pressure_kPa", (float)press * 1.6);
+    }
+
+    int patched = 0;
+    uint8_t b[11];
+    unsigned bitpos = 0;
+    while ((bitpos = bitbuffer_search(&bits, 0, bitpos, preamble_pattern, 24)) + 176 <= bits.bits_per_row[0]) {
+        bitbuffer_t packet = {0};
+        bitbuffer_manchester_decode(&bits, 0, bitpos, &packet, 88);
+        bitbuffer_invert(&packet);
+        uint8_t *p = packet.bb[0];
+        if (packet.bits_per_row[0] >= 88 && (p[0] << 8 | p[1]) == 0xdd33) {
+            memcpy(b, p, 11);
+            if (have_id) {
+                b[2] = (uint8_t)(id >> 16);
+                b[3] = (uint8_t)(id >> 8);
+                b[4] = (uint8_t)id;
+            }
+            if (have_flags)
+                b[5] = flags;
+            if (have_t)
+                b[6] = temp;
+            if (have_p)
+                b[7] = press;
+            uint16_t crc = crc16(&b[2], 7, 0x8005, 0x0000);
+            b[9]         = (uint8_t)(crc >> 8);
+            b[10]        = (uint8_t)crc;
+            encoder_manchester_encode(bits.bb[0], bitpos, b, 88, 1);
+            patched++;
+            bitpos += 176;
+        }
+        else {
+            bitpos += 2;
+        }
+    }
+    if (!patched)
+        return -1;
+
+    char code_str[9 * 2 + 1];
+    snprintf(code_str, sizeof(code_str), "%02x%02x%02x%02x%02x%02x%02x%02x%02x", b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10]);
+    capture_set_field(cap, "code", code_str);
+
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -137,5 +223,6 @@ r_device const tpms_jansite_solar = {
         .long_width  = 51,
         .reset_limit = 5000, // Large enough to merge the 3 duplicate messages
         .decode_fn   = &tpms_jansite_solar_callback,
+        .encode_fn   = &tpms_jansite_solar_encode,
         .fields      = output_fields,
 };
