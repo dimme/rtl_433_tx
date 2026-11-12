@@ -98,6 +98,39 @@ static void encode_pwm_row(uint8_t const *row, unsigned bit_len, int s_short, in
     }
 }
 
+// Encode one row of Manchester with fixed leading zero bit (half-bit =
+// s_short). The slicer treats the first rising edge as the mid-bit edge of an
+// implied 0, a falling mid-bit edge as 1 and a rising one as 0. Rows not
+// starting with 0 get that implied 0 prepended.
+static void encode_mc_zerobit_row(uint8_t const *row, unsigned bit_len, int s_short,
+        pulse_data_t *pulses)
+{
+    int first = (row[0] >> 7) & 1;
+    int level = 1; // second half of the implied leading 0
+    int run   = s_short;
+    int pulse = 0;
+    for (unsigned i = first ? 0 : 1; i < bit_len; ++i) {
+        int bit = (row[i / 8] >> (7 - (i % 8))) & 1;
+        int half[2] = {bit, !bit};
+        for (int h = 0; h < 2; ++h) {
+            if (half[h] == level) {
+                run += s_short;
+                continue;
+            }
+            if (level)
+                pulse = run;
+            else
+                pd_append(pulses, pulse, run);
+            level = half[h];
+            run   = s_short;
+        }
+    }
+    if (level)
+        pd_append(pulses, run, 0);
+    else
+        pd_append(pulses, pulse, run);
+}
+
 int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
         pulse_data_t *pulses, uint32_t sample_rate)
 {
@@ -132,6 +165,10 @@ int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
     // row needs its own terminator pulse; stretching the last data gap would
     // otherwise swallow the final bit at the slicer.
     int is_ppm = (mod == OOK_PULSE_PPM);
+    // Any gap longer than a symbol ends a Manchester-zerobit message, so rows
+    // can only be sent as separate messages.
+    if (mod == OOK_PULSE_MANCHESTER_ZEROBIT || mod == FSK_PULSE_MANCHESTER_ZEROBIT)
+        row_sep = reset_gap + s_long;
 
     for (unsigned r = 0; r < bits->num_rows; ++r) {
         uint8_t const *row = bits->bb[r];
@@ -150,6 +187,10 @@ int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
         case OOK_PULSE_PWM:
         case FSK_PULSE_PWM:
             encode_pwm_row(row, bit_len, s_short, s_long, s_sync > 0 ? s_short : s_short, pulses);
+            break;
+        case OOK_PULSE_MANCHESTER_ZEROBIT:
+        case FSK_PULSE_MANCHESTER_ZEROBIT:
+            encode_mc_zerobit_row(row, bit_len, s_short, pulses);
             break;
         default:
             return -1; // unsupported coding; caller should replay original pulses

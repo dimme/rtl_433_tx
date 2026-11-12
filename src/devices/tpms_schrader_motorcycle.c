@@ -53,6 +53,9 @@ Data layout{56} 7 byte:
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 static int tpms_schrader_motorcycle_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -109,6 +112,64 @@ static int tpms_schrader_motorcycle_decode(r_device *decoder, bitbuffer_t *bitbu
     return 1;
 }
 
+/** Encoder: inverse of tpms_schrader_motorcycle_decode().
+
+    The demodulator already Manchester-decodes, so the row holds NRZ bits.
+    Keeps the captured preamble and fixed bits, patches id, pressure and
+    temperature, recomputes the CRC-8 and writes the 7 message bytes in place.
+*/
+static int tpms_schrader_motorcycle_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[] = {0x7f, 0xf8};
+
+    if (cap->bits.num_rows != 1)
+        return -1;
+
+    bitbuffer_t src = cap->bits;
+    unsigned len = src.bits_per_row[0];
+    unsigned pos = bitbuffer_search(&src, 0, 0, preamble_pattern, 13);
+    if (pos + 13 + 56 > len)
+        return -1;
+    pos += 13;
+
+    uint8_t b[7] = {0};
+    bitbuffer_extract_bytes(&src, 0, pos, b, 56);
+
+    char const *f;
+    if ((f = capture_get_field(cap, "id"))) {
+        uint32_t id = (uint32_t)strtoul(f, NULL, 10) & 0xffffff;
+        b[0] = (uint8_t)((b[0] & 0xfc) | (id >> 22));
+        b[1] = (uint8_t)(id >> 14);
+        b[2] = (uint8_t)(id >> 6);
+        b[3] = (uint8_t)((b[3] & 0x03) | ((id & 0x3f) << 2));
+    }
+    double d;
+    if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+        long p = lround(d * 2.0);
+        if (p < 0) p = 0;
+        if (p > 0x3ff) p = 0x3ff;
+        b[3] = (uint8_t)((b[3] & 0xfc) | (p >> 8));
+        b[4] = (uint8_t)(p & 0xff);
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d) + 50;
+        if (t < 0) t = 0;
+        if (t > 0xff) t = 0xff;
+        b[5] = (uint8_t)t;
+    }
+
+    b[6] = crc8(b, 6, 0x07, 0xe0);
+
+    for (unsigned k = 0; k < 56; ++k)
+        encoder_set_bit(src.bb[0], pos + k, (b[k / 8] >> (7 - (k % 8))) & 1);
+
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -126,5 +187,6 @@ r_device const tpms_schrader_motorcycle = {
         .long_width  = 122,
         .reset_limit = 375,
         .decode_fn   = &tpms_schrader_motorcycle_decode,
+        .encode_fn   = &tpms_schrader_motorcycle_encode,
         .fields      = output_fields,
 };
