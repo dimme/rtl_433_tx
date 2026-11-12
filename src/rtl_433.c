@@ -1552,7 +1552,7 @@ static int run_transmit(r_cfg_t *cfg)
         // Apply -e edits (key=value). Keys "freq_hz"/"sample_rate"/"repeats"
         // adjust transmit parameters; everything else is a decoded field.
         unsigned edited = 0;
-        unsigned repeats = 1;
+        unsigned repeats = 0; // 0 = not specified; use modulation default
         for (void **it = cfg->tx_edits.elems; it && *it; ++it) {
             char const *e = *it;
             char const *eq = strchr(e, '=');
@@ -1622,7 +1622,7 @@ static int run_transmit(r_cfg_t *cfg)
 
         tx_mod_params_t mp;
         tx_mod_params_defaults(&mp, iq_rate, cap.is_fsk);
-        if (repeats > 1) mp.repeats = repeats;
+        if (repeats > 0) mp.repeats = repeats;
         if (cap.pulses.sample_rate == 0) cap.pulses.sample_rate = cap.sample_rate;
 
         if (out_is_iq) {
