@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /**
 SmarTire TPMS sensor.
@@ -126,6 +129,93 @@ static int tpms_smartire_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of tpms_smartire_decode().
+
+    Setting temperature_C on a pressure message (or pressure_kPa on a
+    temperature message) switches the message type.
+*/
+static int tpms_smartire_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[] = {0x32, 0xb4};
+
+    if (cap->bits.num_rows != 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+
+    unsigned pos = bitbuffer_search(&bits, 0, 0, preamble_pattern, 16);
+    if (pos >= bits.bits_per_row[0])
+        return -1;
+    unsigned start = pos + 16;
+
+    bitbuffer_t decoded = {0};
+    bitbuffer_differential_manchester_decode(&bits, 0, start, &decoded, 48);
+    if (decoded.bits_per_row[0] < 47 || crc7(decoded.bb[0], 6, 0x45, 0x6f))
+        return -1;
+    uint8_t b[6];
+    memcpy(b, decoded.bb[0], 6);
+    int msg_type = b[1] >> 6;
+    if (msg_type > 1)
+        return -1;
+
+    int v;
+    double d;
+    if (encoder_field_int(cap, "id", &v))
+        b[1] = (uint8_t)((b[1] & 0xc0) | ((v >> 16) & 0x3f)), b[2] = (uint8_t)(v >> 8), b[3] = (uint8_t)v;
+
+    int has_p = encoder_field_dbl(cap, "pressure_kPa", &d);
+    double p  = d;
+    int has_t = encoder_field_dbl(cap, "temperature_C", &d);
+    double t  = d;
+    // a decoded message carries only one of the two fields, so the other one was added by the user
+    if (msg_type == 0 && has_t)
+        msg_type = 1;
+    else if (msg_type == 1 && has_p)
+        msg_type = 0;
+    if (msg_type == 0 && has_p) {
+        long r = lround(p / 2.5) + 40;
+        b[0]   = (uint8_t)(r < 0 ? 0 : r > 0xff ? 0xff : r);
+    }
+    else if (msg_type == 1 && has_t) {
+        long r = lround(t) + 40;
+        b[0]   = (uint8_t)(r < 0 ? 0 : r > 0xff ? 0xff : r);
+    }
+    b[1] = (uint8_t)((msg_type << 6) | (b[1] & 0x3f));
+
+    if (encoder_field_int(cap, "flags", &v))
+        b[4] = (uint8_t)((b[4] & 0x80) | (v & 0x7f));
+    if (encoder_field_int(cap, "inflate", &v))
+        b[4] = (uint8_t)((v ? 0x80 : 0) | (b[4] & 0x7f));
+    else
+        b[4] &= 0x7f;
+
+    b[5] = (uint8_t)(crc7(b, 5, 0x45, 0x6f) << 1 | (b[5] & 1));
+
+    unsigned nbits = start + 96 <= bits.bits_per_row[0] ? 48 : 47;
+    int prev       = bitrow_get_bit(bits.bb[0], start - 1);
+    encoder_diff_manchester_encode(bits.bb[0], start, &prev, b, nbits);
+
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", (b[1] & 0x3f) << 16 | b[2] << 8 | b[3]);
+    capture_set_field(cap, "id", buf);
+    if (msg_type == 0) {
+        capture_del_field(cap, "temperature_C");
+        encoder_set_dbl(cap, "pressure_kPa", (b[0] - 40) * 2.5);
+    }
+    else {
+        capture_del_field(cap, "pressure_kPa");
+        encoder_set_dbl(cap, "temperature_C", b[0] - 40.0);
+    }
+    if (b[4] & 0x80)
+        capture_set_field(cap, "inflate", "1");
+    else
+        capture_del_field(cap, "inflate");
+    snprintf(buf, sizeof(buf), "%d", b[4] & 0x7f);
+    capture_set_field(cap, "flags", buf);
+
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -145,5 +235,6 @@ r_device const tpms_smartire = {
         .long_width  = 167,
         .reset_limit = 1000,
         .decode_fn   = &tpms_smartire_decode,
+        .encode_fn   = &tpms_smartire_encode,
         .fields      = output_fields,
 };
