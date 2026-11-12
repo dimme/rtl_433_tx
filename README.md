@@ -5,7 +5,7 @@ adds recording, editing and re-transmitting of captured signals (see
 [Recording, editing and re-transmitting](#recording-editing-and-re-transmitting)).
 Its binary installs as `rtl_433_tx`.
 
-rtl_433 (despite the name) is a generic data receiver, mainly for the 433.92 MHz, 868 MHz (SRD), 315 MHz, 345 MHz, and 915 MHz ISM bands.
+rtl_433_tx (despite the name) is a generic data receiver, mainly for the 433.92 MHz, 868 MHz (SRD), 315 MHz, 345 MHz, and 915 MHz ISM bands.
 
 The official source code is in the https://github.com/merbanan/rtl_433/ repository.
 
@@ -28,9 +28,9 @@ Actively tested and supported are Realtek RTL2832 based DVB dongles (using RTL-S
 
 ## Building
 
-rtl_433 is written in portable C (C99 standard) and known to compile on Linux (also embedded), FreeBSD, MacOS, and Windows systems.
+rtl_433_tx is written in portable C (C99 standard) and known to compile on Linux (also embedded), FreeBSD, MacOS, and Windows systems.
 Older compilers and toolchains are supported as a key-goal.
-Low resource consumption and very few dependencies allow rtl_433 to run on embedded hardware.
+Low resource consumption and very few dependencies allow rtl_433_tx to run on embedded hardware.
 Most common 32-bit and 64-bit CPU architectures like amd64, arm64, armhf, i386, ppc64el, riscv64, s390x and others are well supported.
 
 See [BUILDING.md](docs/BUILDING.md)
@@ -777,7 +777,7 @@ Besides decoded fields, three special keys adjust the transmission itself:
 
 ## Security
 
-Please note: We aim to make `rtl_433` safe to use, but it should not be assumed secure.
+Please note: We aim to make `rtl_433_tx` safe to use, but it should not be assumed secure.
 There is no reason to e.g. run with `sudo`, we do read and write files without any checks.
 
 The output is literally pulled from thin air, it's not to be trusted.
