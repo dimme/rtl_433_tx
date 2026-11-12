@@ -790,17 +790,22 @@ Besides decoded fields, three special keys adjust the transmission itself:
 **Editing the capture file directly:** instead of `-e`, you can simply open the
 capture file in a text editor, change values in a capture's `"decoded"` block
 (or its top-level `"freq_hz"`), save it, and transmit it with `-j` as usual.
-For devices with a dedicated encoder (e.g. Toyota TPMS) the payload is always
+For devices with a dedicated encoder (see below) the payload is always
 rebuilt from the `"decoded"` values, so your edits are what gets sent. For
-devices without an encoder, `"decoded"` edits are ignored and the raw bits in
-`"rows"` are replayed; edit `"rows"` itself (or use `-e`) in that case.
+devices without an encoder, `"decoded"` edits (in the file or via `-e`) are
+ignored and the raw bits in `"rows"` are replayed; edit `"rows"` itself in that
+case. Watch the transmit log: `rebuilt via <device> encoder` means your edits
+were applied.
 
     # Edit "pressure_PSI" in caps.json by hand, then:
     rtl_433_tx -j caps.json -d driver=hackrf -g 20
 
-> **Note:** correct dedicated encoders are provided per device where
-> implemented, with **Toyota TPMS** as the full-fidelity reference; all other
-> devices fall back to generic replay / bit-level editing.
+> **Note:** dedicated encoders (rebuilding the payload and its CRC/checksum,
+> verified by decoding it again) are implemented for **Toyota TPMS**,
+> **Hyundai WS SENZOR** (`Hyundai-WS`), **Nexus / FreeTec NC-7345 / TFA
+> 30.3209** (`Nexus-TH`/`Nexus-T`), **Acurite 606TX** and **inFactory /
+> nor-tec NC-3982-913** (`inFactory-TH`). All other devices fall back to
+> generic raw-bit replay.
 
 > **Legal notice:** transmitting on ISM and other bands (and spoofing device
 > data such as TPMS frames) may be regulated or prohibited in your jurisdiction.

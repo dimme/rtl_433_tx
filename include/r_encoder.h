@@ -42,4 +42,23 @@ int encoder_decode_once(r_device const *dev, bitbuffer_t *bits, capture_t *out);
 /// Numeric fields are compared with a small tolerance. @return 1 if all match.
 int encoder_verify(r_device const *dev, bitbuffer_t *bits, capture_t const *want);
 
+/// Read a decoded field as integer (base 10). @return 1 if present.
+int encoder_field_int(capture_t const *cap, char const *key, int *out);
+
+/// Read a decoded field as double. @return 1 if present.
+int encoder_field_dbl(capture_t const *cap, char const *key, double *out);
+
+/// Prepare a row-template encode for fixed-length payloads.
+///
+/// Copies the capture's raw bits to @p out and extracts the first @p nbits
+/// of the repeated payload row (rows of @p nbits .. @p nbits + 2 bits) into
+/// @p base, so unedited fields keep their captured values.
+/// @return 0 on success, negative if no suitable row was captured.
+int encoder_template_rows(capture_t const *cap, unsigned nbits, uint8_t *base, bitbuffer_t *out);
+
+/// Overwrite the first @p nbits of every payload row in @p out with @p payload.
+/// Rows of @p nbits - 1 (a dropped leading bit) are restored to full length;
+/// trailing bits beyond @p nbits are kept.
+void encoder_apply_rows(bitbuffer_t *out, unsigned nbits, uint8_t const *payload);
+
 #endif /* INCLUDE_R_ENCODER_H_ */
