@@ -61,4 +61,21 @@ int encoder_template_rows(capture_t const *cap, unsigned nbits, uint8_t *base, b
 /// trailing bits beyond @p nbits are kept.
 void encoder_apply_rows(bitbuffer_t *out, unsigned nbits, uint8_t const *payload);
 
+/// Set a single bit (MSB-first) in a raw bitrow.
+void encoder_set_bit(uint8_t *row, unsigned idx, int val);
+
+/// Encode @p nbits data bits (MSB-first in @p data) as Manchester half-bits into
+/// @p row starting at bit @p start. @p invert selects the coding convention:
+/// 0 matches bitbuffer_manchester_decode() (emits 1-d, d); 1 matches a decoder
+/// that inverts after Manchester decoding (emits d, 1-d).
+/// @return the next bit position after the encoded data.
+unsigned encoder_manchester_encode(uint8_t *row, unsigned start, uint8_t const *data, unsigned nbits, int invert);
+
+/// Encode @p nbits data bits (MSB-first in @p data) as differential Manchester
+/// half-bits into @p row starting at bit @p start. @p prev holds the previous
+/// physical half-bit level (updated on return). Matches
+/// bitbuffer_differential_manchester_decode(): a 0 bit toggles, a 1 bit holds.
+/// @return the next bit position after the encoded data.
+unsigned encoder_diff_manchester_encode(uint8_t *row, unsigned start, int *prev, uint8_t const *data, unsigned nbits);
+
 #endif /* INCLUDE_R_ENCODER_H_ */

@@ -185,3 +185,39 @@ void encoder_apply_rows(bitbuffer_t *out, unsigned nbits, uint8_t const *payload
         }
     }
 }
+
+void encoder_set_bit(uint8_t *row, unsigned idx, int val)
+{
+    uint8_t mask = (uint8_t)(0x80 >> (idx % 8));
+    if (val)
+        row[idx / 8] |= mask;
+    else
+        row[idx / 8] &= (uint8_t)~mask;
+}
+
+unsigned encoder_manchester_encode(uint8_t *row, unsigned start, uint8_t const *data, unsigned nbits, int invert)
+{
+    for (unsigned i = 0; i < nbits; ++i) {
+        int d  = (data[i / 8] >> (7 - (i % 8))) & 1;
+        int b1 = invert ? d : (1 - d);
+        int b2 = invert ? (1 - d) : d;
+        encoder_set_bit(row, start++, b1);
+        encoder_set_bit(row, start++, b2);
+    }
+    return start;
+}
+
+unsigned encoder_diff_manchester_encode(uint8_t *row, unsigned start, int *prev, uint8_t const *data, unsigned nbits)
+{
+    int p = *prev;
+    for (unsigned i = 0; i < nbits; ++i) {
+        int d  = (data[i / 8] >> (7 - (i % 8))) & 1;
+        int h1 = 1 - p;
+        int h2 = d ? h1 : (1 - h1);
+        encoder_set_bit(row, start++, h1);
+        encoder_set_bit(row, start++, h2);
+        p = h2;
+    }
+    *prev = p;
+    return start;
+}
