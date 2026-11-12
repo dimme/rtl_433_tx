@@ -66,6 +66,9 @@ Flex decoder:
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 #define TPMS_TYREGUARD400_MESSAGE_BITLEN     88
 
@@ -169,6 +172,83 @@ static int tpms_tyreguard400_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return events > 0 ? events : ret;
 }
 
+/** Encoder: inverse of tpms_tyreguard400_decode().
+
+    Rows hold NRZ bits (the demodulator Manchester-decodes). For every frame
+    sync found, patches id, pressure, temperature and flags, recomputes the
+    CRC and re-derives the flag display fields. peering_request / leaking both
+    map to flag bits 0-1 (an edit to either is applied), ack_leaking to bit 3.
+*/
+static int tpms_tyreguard400_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const tyreguard_frame_sync[] = {0xfd, 0x5f, 0xd5, 0xf0};
+    unsigned const nbits = TPMS_TYREGUARD400_MESSAGE_BITLEN;
+
+    bitbuffer_t src = cap->bits;
+    char const *f;
+    int v;
+    double d;
+    int found = 0;
+    uint8_t flags = 0;
+
+    for (unsigned row = 0; row < src.num_rows; ++row) {
+        unsigned bitpos = 0;
+        while ((bitpos = bitbuffer_search(&src, row, bitpos, tyreguard_frame_sync, 28)) + nbits
+                <= src.bits_per_row[row]) {
+            uint8_t b[(TPMS_TYREGUARD400_MESSAGE_BITLEN + 7) / 8];
+            bitbuffer_extract_bytes(&src, row, bitpos, b, nbits);
+
+            if ((f = capture_get_field(cap, "id"))) {
+                uint32_t id = (uint32_t)strtoul(f, NULL, 16);
+                b[3] = (uint8_t)((b[3] & 0xf0) | ((id >> 24) & 0x0f));
+                b[4] = (uint8_t)(id >> 16);
+                b[5] = (uint8_t)(id >> 8);
+                b[6] = (uint8_t)id;
+            }
+            flags = b[9];
+            int orig_low = flags & 0x3;
+            if (encoder_field_int(cap, "peering_request", &v) && (v & 0x3) != orig_low)
+                flags = (uint8_t)((flags & ~0x3) | (v & 0x3));
+            else if (encoder_field_int(cap, "leaking", &v) && (v & 0x3) != orig_low)
+                flags = (uint8_t)((flags & ~0x3) | (v & 0x3));
+            if (encoder_field_int(cap, "ack_leaking", &v))
+                flags = (uint8_t)(v ? (flags | 0x08) : (flags & ~0x08));
+            if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+                long p = lround(d);
+                p = p < 0 ? 0 : p > 0x7ff ? 0x7ff : p;
+                b[7] = (uint8_t)p;
+                flags = (uint8_t)((flags & ~0x70) | ((p >> 4) & 0x70));
+            }
+            b[9] = flags;
+            if (encoder_field_dbl(cap, "temperature_C", &d)) {
+                long t = lround(d) + 40;
+                b[8] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+            }
+            b[10] = crc8(b, 10, 0x31, 0xdd);
+
+            for (unsigned k = 0; k < nbits; ++k)
+                encoder_set_bit(src.bb[row], bitpos + k, (b[k / 8] >> (7 - (k % 8))) & 1);
+            bitpos += nbits;
+            found = 1;
+        }
+    }
+    if (!found)
+        return -1;
+
+    char tmp[8];
+    snprintf(tmp, sizeof(tmp), "%d", flags & 0x3);
+    capture_set_field(cap, "peering_request", tmp);
+    capture_set_field(cap, "leaking", tmp);
+    snprintf(tmp, sizeof(tmp), "%d", flags & 0x8);
+    capture_set_field(cap, "ack_leaking", tmp);
+
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -195,5 +275,6 @@ r_device const tpms_tyreguard400 = {
         .gap_limit   = 0,
         .reset_limit = 500,
         .decode_fn   = &tpms_tyreguard400_callback,
+        .encode_fn   = &tpms_tyreguard400_encode,
         .fields      = output_fields,
 };
