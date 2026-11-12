@@ -75,7 +75,7 @@ typedef struct r_cfg {
     char const *tx_infile;        ///< -j FILE  transmit captures from this file
     char const *tx_outfile;       ///< -o FILE  write IQ (.cu8/.cs16/.cf32) or capture (.json)
     list_t tx_edits;              ///< -e key=value  edits applied before transmit
-    int tx_fry_amp;               ///< --i-want-to-fry-my-amp  allow TX gain above the safe limit
+    int tx_fry_amp;               ///< --fry-my-amp  allow TX gain above the safe limit
     int in_replay;
     volatile sig_atomic_t hop_now; ///< flag to cause channel hopping, async written by signal handler and push_sdr_flow()
     volatile sig_atomic_t exit_async; ///< flag to cause exiting, async written by signal handler

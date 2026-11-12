@@ -102,9 +102,9 @@
 /// above HACKRF_TX_VGA_MAX_DB/2 = 23 dB to "TX RF amp on (+14 dB) + VGA", and the
 /// TX RF amp (MGA-81563) is the HackRF One part most commonly destroyed
 /// (see greatscottgadgets/hackrf#974). Capping at 23 dB keeps the amp bypassed.
-/// Can be lifted with --i-want-to-fry-my-amp.
+/// Can be lifted with --fry-my-amp.
 #define TX_GAIN_SAFE_MAX_DB 23
-#define TX_FRY_OPT "--i-want-to-fry-my-amp"
+#define TX_FRY_OPT "--fry-my-amp"
 #define TXG_STR_(x) #x
 #define TXG_STR(x) TXG_STR_(x)
 
@@ -182,7 +182,7 @@ static void usage(int exit_code)
             "  [-e <key>=<value>] Edit a decoded field before transmit (repeatable). Special keys: freq_hz, sample_rate, repeats.\n"
             "  [-o <filename>] Transmit output target: .json writes an (edited) capture, .cu8/.cs16/.cf32 writes an IQ file; omit to transmit via SDR (-d/-f/-s/-g).\n"
             "       TX gain (-g) is capped at " TXG_STR(TX_GAIN_SAFE_MAX_DB) " dB (HackRF One: VGA only, TX RF amp off).\n"
-            "  [--i-want-to-fry-my-amp] DANGER: lift the TX gain cap. Reflected power may permanently destroy the TX RF amp!\n"
+            "  [--fry-my-amp] DANGER: lift the TX gain cap. Reflected power may permanently destroy the TX RF amp!\n"
             "  [-n <value>] Specify number of samples to take (each sample is an I/Q pair)\n"
             "  [-T <seconds>] Specify number of seconds to run, also 12:34 or 1h23m45s\n"
             "  [-E hop | quit] Hop/Quit after outputting successful event(s)\n"
@@ -1569,7 +1569,7 @@ static int run_transmit(r_cfg_t *cfg)
                     "\n"
                     "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
                     "!!                                                                          !!\n"
-                    "!!   DANGER: " TX_FRY_OPT " GIVEN -- TX GAIN SAFETY LIMIT DISABLED  !!\n"
+                    "!!   DANGER: " TX_FRY_OPT " GIVEN -- TX GAIN SAFETY LIMIT DISABLED            !!\n"
                     "!!                                                                          !!\n"
                     "!!   Requested TX gain: %5.1f dB (safe limit: %2d dB)                        !!\n"
                     "!!                                                                          !!\n"
