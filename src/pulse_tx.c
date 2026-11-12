@@ -28,7 +28,7 @@ void tx_mod_params_defaults(tx_mod_params_t *p, uint32_t sample_rate, int is_fsk
     p->fsk_dev_hz    = 25000.0; // +-25 kHz deviation, 50 kHz separation
     p->ook_offset_hz = 0.0;     // transmit OOK pulses at the carrier
     p->amplitude     = 0.98; // near full-scale; constant-envelope FSK never clips, OOK is ramped
-    p->repeats       = 3;       // real devices repeat each frame; improves reception of short bursts
+    p->repeats       = 5;       // real devices repeat each frame; improves reception of short bursts
     p->gap_us        = 10000.0; // 10 ms idle between repeats
     p->ramp_us       = 2.0;     // small ramp to reduce key-click splatter
 }
