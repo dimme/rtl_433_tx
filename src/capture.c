@@ -101,6 +101,19 @@ void capture_set_field(capture_t *cap, char const *key, char const *val)
     cap->num_fields++;
 }
 
+void capture_del_field(capture_t *cap, char const *key)
+{
+    for (unsigned i = 0; i < cap->num_fields; ++i) {
+        if (strcmp(cap->fields[i].key, key) == 0) {
+            free(cap->fields[i].key);
+            free(cap->fields[i].val);
+            memmove(&cap->fields[i], &cap->fields[i + 1], (cap->num_fields - i - 1) * sizeof(capture_field_t));
+            cap->num_fields--;
+            return;
+        }
+    }
+}
+
 static void field_add(capture_t *cap, char const *key, char const *val, int is_string)
 {
     cap->fields = realloc(cap->fields, (cap->num_fields + 1) * sizeof(capture_field_t));

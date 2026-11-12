@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /**
 EezTire E618 TPMS and Carchet TPMS (same protocol).
@@ -151,6 +154,96 @@ static int tpms_eezrv_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of tpms_eezrv_decode().
+
+    The decoder inverts the row, so work on an inverted copy. Patches id,
+    pressure, temperature and flags, recomputes the checksum and re-derives the
+    flag display fields. Edits to battery_ok / fast_leak / inflate (with flags
+    left unchanged) are folded into the flags.
+*/
+static int tpms_eezrv_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[] = {0xff, 0xff};
+
+    if (cap->bits.num_rows != 1)
+        return -1;
+
+    bitbuffer_t src = cap->bits;
+    bitbuffer_invert(&src);
+    if (bitbuffer_search(&src, 0, 0, preamble_pattern, 16) != 0 || src.bits_per_row[0] < 80)
+        return -1;
+
+    uint8_t b[7] = {0};
+    bitbuffer_extract_bytes(&src, 0, 24, b, 56);
+
+    char const *f;
+    int v;
+    double d;
+    if ((f = capture_get_field(cap, "id"))) {
+        uint32_t id = (uint32_t)strtoul(f, NULL, 16);
+        b[0] = (uint8_t)(id >> 16);
+        b[1] = (uint8_t)(id >> 8);
+        b[2] = (uint8_t)id;
+    }
+
+    int orig = (b[5] << 8) | b[6];
+    int flags = orig;
+    if ((f = capture_get_field(cap, "flags")))
+        flags = (int)strtoul(f, NULL, 16) & 0xffff;
+    if (flags == orig) {
+        int o1 = flags >> 8;
+        int f1 = o1;
+        if (encoder_field_int(cap, "battery_ok", &v) && !!v != !(o1 >> 7))
+            f1 = v ? (f1 & ~0x80) : (f1 | 0x80);
+        if (encoder_field_int(cap, "inflate", &v) && !!v != ((o1 >> 5) & 1))
+            f1 = v ? (f1 | 0x30) : (f1 & ~0x20);
+        if (encoder_field_int(cap, "fast_leak", &v) && !!v != ((o1 & 0x10) && !(o1 & 0x20)))
+            f1 = v ? ((f1 | 0x10) & ~0x20) : (f1 & ~0x30);
+        flags = (f1 << 8) | (flags & 0xff);
+    }
+    b[5] = (uint8_t)(flags >> 8);
+    b[6] = (uint8_t)flags;
+
+    if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+        long p = lround(d / 2.5);
+        p = p < 0 ? 0 : p > 0x1ff ? 0x1ff : p;
+        b[3] = (uint8_t)p;
+        b[6] = (uint8_t)((b[6] & 0xfe) | (p >> 8));
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d) + 50;
+        b[4] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+    }
+
+    int chk = add_bytes(b, sizeof(b));
+    if (chk > 0xff)
+        chk |= 0x80;
+
+    // re-derive the flag display fields
+    char tmp[8];
+    int f1 = b[5];
+    snprintf(tmp, sizeof(tmp), "%02x%02x", b[5], b[6]);
+    capture_set_field(cap, "flags", tmp);
+    snprintf(tmp, sizeof(tmp), "%d", !(f1 >> 7));
+    capture_set_field(cap, "battery_ok", tmp);
+    snprintf(tmp, sizeof(tmp), "%d", (f1 & 0x10) && !(f1 & 0x20));
+    capture_set_field(cap, "fast_leak", tmp);
+    snprintf(tmp, sizeof(tmp), "%d", (f1 >> 5) & 1);
+    capture_set_field(cap, "inflate", tmp);
+
+    uint8_t msg[8] = {(uint8_t)chk};
+    memcpy(&msg[1], b, 7);
+    for (unsigned k = 0; k < 64; ++k)
+        encoder_set_bit(src.bb[0], 16 + k, (msg[k / 8] >> (7 - (k % 8))) & 1);
+
+    bitbuffer_invert(&src);
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -172,5 +265,6 @@ r_device const tpms_eezrv = {
         .long_width  = 50,
         .reset_limit = 120,
         .decode_fn   = &tpms_eezrv_decode,
+        .encode_fn   = &tpms_eezrv_encode,
         .fields      = output_fields,
 };
