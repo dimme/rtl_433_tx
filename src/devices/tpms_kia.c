@@ -40,6 +40,9 @@ NOTE: You may need to use the "-s 1000000" option of rtl_433 in order to get a c
  */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 static int tpms_kia_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigned row, unsigned bitpos)
 {
@@ -130,6 +133,104 @@ static int tpms_kia_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return events > 0 ? events : ret;
 }
 
+/** Encoder: inverse of tpms_kia_decode().
+
+    Only the top 5 CRC bits are sent and the decoder requires the low 3 bits
+    of the CRC to be zero. If an edit breaks that, the free "d" byte
+    (unknown2, varies per packet anyway) is searched for the nearest value
+    that yields a valid CRC, unless unknown2 itself was edited.
+*/
+static int tpms_kia_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[2] = {0xed, 0x71};
+
+    if (cap->bits.num_rows < 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+
+    int patched = 0;
+    uint8_t b[9];
+    unsigned bitpos = 0;
+    while ((bitpos = bitbuffer_search(&bits, 0, bitpos, preamble_pattern, 16)) + 154 <= bits.bits_per_row[0]) {
+        bitbuffer_t packet = {0};
+        bitbuffer_manchester_decode(&bits, 0, bitpos + 16, &packet, 69);
+        uint8_t *o = packet.bb[0];
+        if (packet.bits_per_row[0] < 69 || (o[8] & 0xf8) != crc8(o, 8, 0x07, 0x76)) {
+            bitpos += 2;
+            continue;
+        }
+        memcpy(b, o, 9);
+
+        int v;
+        double d;
+        char const *f;
+        unsigned orig_id = (unsigned)o[2] << 28 | o[3] << 20 | o[4] << 12 | o[5] << 4 | o[6] >> 4;
+        if ((f = capture_get_field(cap, "id")) && (unsigned)strtoul(f, NULL, 16) != orig_id) {
+            unsigned id = (unsigned)strtoul(f, NULL, 16);
+            b[2]        = (uint8_t)((b[2] & 0xf0) | (id >> 28));
+            b[3]        = (uint8_t)(id >> 20);
+            b[4]        = (uint8_t)(id >> 12);
+            b[5]        = (uint8_t)(id >> 4);
+            b[6]        = (uint8_t)((id & 0x0f) << 4 | (b[6] & 0x0f));
+        }
+        if ((f = capture_get_field(cap, "unknown1")) && (strtoul(f, NULL, 16) & 0x0f) != (unsigned)(o[0] >> 4)) {
+            b[0] = (uint8_t)((strtoul(f, NULL, 16) & 0x0f) << 4 | (b[0] & 0x0f));
+        }
+        int u2_edited = 0;
+        if ((f = capture_get_field(cap, "unknown2")) && (strtoul(f, NULL, 16) & 0xff) != o[7]) {
+            b[7]      = (uint8_t)strtoul(f, NULL, 16);
+            u2_edited = 1;
+        }
+        if (encoder_field_dbl(cap, "pressure_PSI", &d) && fabs(d - ((o[0] << 4 | o[1] >> 4) & 0xff) / 5.0) > 1e-3) {
+            long p = lround(d * 5);
+            v      = p < 0 ? 0 : p > 0xff ? 0xff : (int)p;
+            b[0]   = (uint8_t)((b[0] & 0xf0) | v >> 4);
+            b[1]   = (uint8_t)((v & 0x0f) << 4 | (b[1] & 0x0f));
+        }
+        if (encoder_field_dbl(cap, "temperature_C", &d) && lround(d) != ((o[1] << 4 | o[2] >> 4) & 0xff) - 50) {
+            long t = lround(d) + 50;
+            v      = t < 0 ? 0 : t > 0xff ? 0xff : (int)t;
+            b[1]   = (uint8_t)((b[1] & 0xf0) | v >> 4);
+            b[2]   = (uint8_t)((v & 0x0f) << 4 | (b[2] & 0x0f));
+        }
+
+        uint8_t c = crc8(b, 8, 0x07, 0x76);
+        if (c & 0x07) {
+            if (u2_edited)
+                return -1;
+            uint8_t b7 = b[7];
+            for (int i = 1; i < 256 && (c & 0x07); i++) {
+                b[7] = (uint8_t)(b7 + ((i & 1) ? (i + 1) / 2 : -(i / 2)));
+                c    = crc8(b, 8, 0x07, 0x76);
+            }
+            if (c & 0x07)
+                return -1;
+        }
+        b[8] = c;
+
+        encoder_manchester_encode(bits.bb[0], bitpos + 16, b, 69, 0);
+        patched++;
+        bitpos += 154;
+    }
+    if (!patched)
+        return -1;
+
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%08x", (unsigned)b[2] << 28 | b[3] << 20 | b[4] << 12 | b[5] << 4 | b[6] >> 4);
+    capture_set_field(cap, "id", buf);
+    snprintf(buf, sizeof(buf), "%02x", b[0] >> 4);
+    capture_set_field(cap, "unknown1", buf);
+    snprintf(buf, sizeof(buf), "%03x", b[7]);
+    capture_set_field(cap, "unknown2", buf);
+    encoder_set_dbl(cap, "pressure_PSI", ((b[0] << 4 | b[1] >> 4) & 0xff) / 5.0);
+    encoder_set_dbl(cap, "temperature_C", ((b[1] << 4 | b[2] >> 4) & 0xff) - 50.0);
+    snprintf(buf, sizeof(buf), "%02x%02x%02x%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8]);
+    capture_set_field(cap, "raw", buf);
+
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -150,5 +251,6 @@ r_device const tpms_kia = {
         .long_width  = 50,
         .reset_limit = 200,
         .decode_fn   = &tpms_kia_callback,
+        .encode_fn   = &tpms_kia_encode,
         .fields      = output_fields,
 };
