@@ -1627,6 +1627,13 @@ static int run_transmit(r_cfg_t *cfg)
         }
 
         r_device *dev = capture_find_device(&cfg->demod->r_devs, &cap);
+        // The capture names its protocol explicitly: also allow decoders that
+        // are disabled by default by registering them on demand.
+        if (!dev && cap.protocol > 0 && (unsigned)cap.protocol <= cfg->num_r_devices
+                && cfg->devices[cap.protocol - 1].disabled <= 2) {
+            register_protocol(cfg, &cfg->devices[cap.protocol - 1], NULL);
+            dev = capture_find_device(&cfg->demod->r_devs, &cap);
+        }
 
         // Rebuild from the capture's decoded fields whenever edits were given
         // (-e) or the device has a dedicated encoder. The latter ensures values
