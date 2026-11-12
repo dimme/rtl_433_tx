@@ -413,6 +413,6 @@ INSTALL(
     DESTINATION lib/pkgconfig
 )
 
-install(DIRECTORY man
-    DESTINATION share
-    PATTERN ".md" EXCLUDE)
+install(FILES man/man1/rtl_433.1
+    DESTINATION share/man/man1
+    RENAME rtl_433_tx.1)

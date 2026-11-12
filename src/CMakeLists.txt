@@ -505,6 +505,9 @@ endif()
 
 add_executable(rtl_433 rtl_433.c)
 target_link_libraries(rtl_433 r_433)
+# Build and install the binary as "rtl_433_tx" (TX-capable fork) while keeping
+# the internal CMake target name "rtl_433" used throughout this file.
+set_target_properties(rtl_433 PROPERTIES OUTPUT_NAME rtl_433_tx)
 
 # target_compile_definitions was only added with CMake 2.8.11
 if(THREADS_HAVE_PTHREAD_ARG)
