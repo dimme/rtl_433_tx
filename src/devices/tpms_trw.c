@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /** @fn int tpms_trw_decode(r_device *decoder, bitbuffer_t *bitbuffer, int type)
 TRW TPMS Sensor.
@@ -149,6 +152,98 @@ static int tpms_trw_callback_fsk(r_device *decoder, bitbuffer_t *bitbuffer)
     return tpms_trw_decode(decoder, bitbuffer, 1);
 }
 
+/** Encoder: inverse of tpms_trw_decode() for both the OOK and FSK variant.
+
+    Rows hold NRZ bits (the demodulator Manchester-decodes). Patches mode, id,
+    flags, seq_num, pressure, temperature, motion flags and the trailing OEM
+    nibble, recomputes the CRC and re-derives the display-only fields.
+    Edits to motion_status (with motion_flags unchanged) map to 0x0e (Parked)
+    or the captured/0x00 moving value.
+*/
+static int tpms_trw_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    if (cap->bits.num_rows != 1)
+        return -1;
+
+    int is_fsk = decoder->modulation == FSK_PULSE_MANCHESTER_ZEROBIT;
+    bitbuffer_t src = cap->bits;
+    unsigned len = src.bits_per_row[0];
+    unsigned pos = bitbuffer_search(&src, 0, 0, is_fsk ? preamble_fsk : preamble_ook, 16);
+    if (pos + 16 + 81 > len)
+        return -1;
+    pos += 16;
+
+    uint8_t b[11] = {0};
+    bitbuffer_extract_bytes(&src, 0, pos, b, 88);
+
+    char const *f;
+    int v;
+    double d;
+    if (encoder_field_int(cap, "mode", &v))
+        b[0] = (uint8_t)v;
+    if ((f = capture_get_field(cap, "id"))) {
+        uint32_t id = (uint32_t)strtoll(f, NULL, 10);
+        b[1] = (uint8_t)(id >> 24);
+        b[2] = (uint8_t)(id >> 16);
+        b[3] = (uint8_t)(id >> 8);
+        b[4] = (uint8_t)id;
+    }
+    if (encoder_field_int(cap, "flags", &v))
+        b[5] = (uint8_t)((b[5] & 0x0f) | ((v & 0x0f) << 4));
+    if (encoder_field_int(cap, "seq_num", &v))
+        b[5] = (uint8_t)((b[5] & 0xf0) | (v & 0x0f));
+    if (encoder_field_dbl(cap, "pressure_PSI", &d)) {
+        long p = lround(d / 0.4);
+        b[6] = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d) + 50;
+        b[7] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+    }
+    int orig_motion = b[8];
+    if (encoder_field_int(cap, "motion_flags", &v))
+        b[8] = (uint8_t)v;
+    if (b[8] == orig_motion && (f = capture_get_field(cap, "motion_status"))) {
+        int parked = !strcmp(f, "Parked");
+        if (parked != (orig_motion == 0x0e))
+            b[8] = parked ? 0x0e : 0x00;
+    }
+    if ((f = capture_get_field(cap, "oem_model"))) {
+        if (!strcmp(f, "OEM"))
+            b[10] = (uint8_t)((b[10] & 0x0f) | 0x40);
+        else if (!strcmp(f, "Clone"))
+            b[10] = (uint8_t)(b[10] & 0x0f);
+    }
+
+    b[9] = crc8(b, 9, 0x07, 0x00);
+
+    for (unsigned k = 0; k < 88 && pos + k < len; ++k)
+        encoder_set_bit(src.bb[0], pos + k, (b[k / 8] >> (7 - (k % 8))) & 1);
+    // re-read so derived fields reflect the bits that actually fit in the row
+    bitbuffer_extract_bytes(&src, 0, pos, b, 88);
+
+    char tmp[16];
+    int flags = b[5] >> 4;
+    snprintf(tmp, sizeof(tmp), "%d", b[8]);
+    capture_set_field(cap, "motion_flags", tmp);
+    capture_set_field(cap, "motion_status", b[8] == 0x0e ? "Parked" : "Moving");
+    if (flags == 0x6 || flags == 0x9)
+        capture_set_field(cap, "alert", "Pressure increase/decrease !");
+    else
+        capture_del_field(cap, "alert");
+    int oem = b[10] >> 4;
+    if (oem == 0x4 || oem == 0x0)
+        capture_set_field(cap, "oem_model", oem == 0x4 ? "OEM" : "Clone");
+    else
+        capture_del_field(cap, "oem_model");
+
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -176,6 +271,7 @@ r_device const tpms_trw_ook = {
         .long_width  = 52,
         .reset_limit = 150,
         .decode_fn   = &tpms_trw_callback_ook,
+        .encode_fn   = &tpms_trw_encode,
         .fields      = output_fields,
 };
 
@@ -186,5 +282,6 @@ r_device const tpms_trw_fsk = {
         .long_width  = 52,
         .reset_limit = 150,
         .decode_fn   = &tpms_trw_callback_fsk,
+        .encode_fn   = &tpms_trw_encode,
         .fields      = output_fields,
 };
