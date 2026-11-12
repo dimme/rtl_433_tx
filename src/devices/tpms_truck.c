@@ -48,6 +48,10 @@ Example data:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 static int tpms_truck_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigned row, unsigned bitpos)
 {
@@ -101,6 +105,86 @@ static int tpms_truck_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigned
     return 1;
 }
 
+/** Encoder: inverse of tpms_truck_decode().
+
+    Keeps the captured preamble and 4-bit leading state nibble, patches the
+    edited fields (id, wheel, flags, pressure, temperature), recomputes the XOR
+    checksum and re-derives the battery_ok display field, then re-encodes the
+    76-bit Manchester payload in place.
+*/
+static int tpms_truck_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    if (cap->bits.num_rows < 1)
+        return -1;
+
+    uint8_t const preamble_pattern[3] = {0xaa, 0xaa, 0xa9}; // after invert
+
+    bitbuffer_t src = cap->bits;
+    bitbuffer_t inv = src;
+    bitbuffer_invert(&inv);
+    unsigned bitpos = bitbuffer_search(&inv, 0, 0, preamble_pattern, 24);
+    if (bitpos + 24 + 152 > src.bits_per_row[0])
+        return -1;
+    unsigned pstart = bitpos + 24;
+
+    // decode original payload: 4-bit state U followed by 9 message bytes
+    bitbuffer_t packet = {0};
+    bitbuffer_manchester_decode(&inv, 0, pstart, &packet, 76);
+    if (packet.bits_per_row[0] < 76)
+        return -1;
+    int U = packet.bb[0][0] >> 4;
+    uint8_t b[9] = {0};
+    bitbuffer_extract_bytes(&packet, 0, 4, b, 72);
+
+    char const *f;
+    if ((f = capture_get_field(cap, "id"))) {
+        unsigned id = (unsigned)strtoul(f, NULL, 16);
+        b[0] = (uint8_t)(id >> 24);
+        b[1] = (uint8_t)(id >> 16);
+        b[2] = (uint8_t)(id >> 8);
+        b[3] = (uint8_t)(id);
+    }
+    int v;
+    if (encoder_field_int(cap, "wheel", &v))
+        b[4] = (uint8_t)v;
+    if (encoder_field_int(cap, "flags", &v))
+        b[5] = (uint8_t)((v << 4) | (b[5] & 0x0f));
+    if ((f = capture_get_field(cap, "pressure_kPa"))) {
+        int p = (int)lround(atof(f));
+        if (p < 0) p = 0;
+        if (p > 0xfff) p = 0xfff;
+        b[5] = (uint8_t)((b[5] & 0xf0) | ((p >> 8) & 0x0f));
+        b[6] = (uint8_t)(p & 0xff);
+    }
+    if ((f = capture_get_field(cap, "temperature_C")))
+        b[7] = (uint8_t)((int)lround(atof(f)) & 0xff);
+
+    // recompute XOR checksum so xor_bytes(b, 9) == 0
+    b[8] = (uint8_t)(b[0] ^ b[1] ^ b[2] ^ b[3] ^ b[4] ^ b[5] ^ b[6] ^ b[7]);
+
+    // re-derive redundant display fields
+    int flags = b[5] >> 4;
+    char tmp[8];
+    snprintf(tmp, sizeof(tmp), "%d", (flags & 0x3) == 0x3 ? 1 : 0);
+    capture_set_field(cap, "battery_ok", tmp);
+
+    // assemble the 76-bit payload: U:4 then b[0..8]:72
+    uint8_t pay[10] = {0};
+    for (int i = 0; i < 4; ++i)
+        encoder_set_bit(pay, (unsigned)i, (U >> (3 - i)) & 1);
+    for (int k = 0; k < 72; ++k)
+        encoder_set_bit(pay, (unsigned)(4 + k), (b[k / 8] >> (7 - (k % 8))) & 1);
+
+    // decode inverts the whole buffer first, so emit (d, 1-d) half-bits
+    encoder_manchester_encode(src.bb[0], pstart, pay, 76, 1);
+
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 /** @sa tpms_truck_decode() */
 static int tpms_truck_callback(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -142,5 +226,6 @@ r_device const tpms_truck = {
         .long_width  = 52,
         .reset_limit = 150,
         .decode_fn   = &tpms_truck_callback,
+        .encode_fn   = &tpms_truck_encode,
         .fields      = output_fields,
 };
