@@ -264,7 +264,6 @@ static int tpms_abarth124_encode(r_device const *decoder, struct capture *cap, b
             b[11] = (uint8_t)(crc >> 8);
         }
 
-        // decode inverts the whole buffer first, so emit (d, 1-d) half-bits
         encoder_manchester_encode(inv.bb[0], start, b, data_len, 0);
         found = 1;
     }
