@@ -12,6 +12,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /**
 VDO TPMS Type TG1C and Q85.
@@ -187,6 +190,95 @@ static int tpms_abarth124_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return events;
 }
 
+/** Encoder: inverse of tpms_abarth124_decode() for TG1C and Q85.
+
+    Works on the inverted row like the decoder. For each preamble with a
+    valid payload, patches id, flags, pressure, temperature and status,
+    recomputes the XOR checksum (and the Q85 CRC-16) and re-encodes the
+    Manchester payload in place.
+*/
+static int tpms_abarth124_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[3] = {0xaa, 0xaa, 0xa9}; // after invert
+
+    if (cap->bits.num_rows < 1)
+        return -1;
+
+    bitbuffer_t inv = cap->bits;
+    bitbuffer_invert(&inv);
+    unsigned bits = inv.bits_per_row[0];
+    int type;
+    if (bits > 150 && bits < 210)
+        type = MODEL_TG1C;
+    else if (bits > 210 && bits < 400)
+        type = MODEL_Q85;
+    else
+        return -1;
+    unsigned data_len = type == MODEL_TG1C ? 72 : 96;
+
+    char const *f;
+    int v;
+    double d;
+    int found = 0;
+    unsigned bitpos = 0;
+    while ((bitpos = bitbuffer_search(&inv, 0, bitpos, preamble_pattern, 24)) + 80 <= bits) {
+        unsigned start = bitpos + 24;
+        bitpos += 2;
+        bitbuffer_t packet = {0};
+        bitbuffer_manchester_decode(&inv, 0, start, &packet, data_len);
+        if (packet.bits_per_row[0] < data_len)
+            continue;
+        uint8_t b[12] = {0};
+        memcpy(b, packet.bb[0], data_len / 8);
+        if (xor_bytes(b, 9) != 0)
+            continue;
+
+        if ((f = capture_get_field(cap, "id"))) {
+            uint32_t id = (uint32_t)strtoul(f, NULL, 16);
+            b[0] = (uint8_t)(id >> 24);
+            b[1] = (uint8_t)(id >> 16);
+            b[2] = (uint8_t)(id >> 8);
+            b[3] = (uint8_t)id;
+        }
+        if ((f = capture_get_field(cap, "flags")))
+            b[4] = (uint8_t)strtoul(f, NULL, 16);
+        if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+            double scale = type == MODEL_TG1C ? 1.38 : 3.0;
+            long p = lround(d / scale);
+            b[5] = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+            encoder_set_dbl(cap, "pressure_kPa", b[5] * scale);
+        }
+        if (encoder_field_dbl(cap, "temperature_C", &d)) {
+            int offset = type == MODEL_TG1C ? 50 : 55;
+            long t = lround(d) + offset;
+            b[6] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+            encoder_set_dbl(cap, "temperature_C", b[6] - offset);
+        }
+        if (encoder_field_int(cap, "status", &v))
+            b[7] = (uint8_t)v;
+
+        b[8] = (uint8_t)xor_bytes(b, 8);
+        if (type == MODEL_Q85) {
+            uint16_t crc = crc16(b, 10, 0x1021, 0xffff);
+            b[10] = (uint8_t)crc;
+            b[11] = (uint8_t)(crc >> 8);
+        }
+
+        // decode inverts the whole buffer first, so emit (d, 1-d) half-bits
+        encoder_manchester_encode(inv.bb[0], start, b, data_len, 0);
+        found = 1;
+    }
+    if (!found)
+        return -1;
+
+    bitbuffer_invert(&inv);
+    *out_bits = inv;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -207,5 +299,6 @@ r_device const tpms_abarth124 = {
         .long_width  = 52,  // FSK
         .reset_limit = 150, // Maximum gap size before End Of Message [us].
         .decode_fn   = &tpms_abarth124_callback,
+        .encode_fn   = &tpms_abarth124_encode,
         .fields      = output_fields,
 };
