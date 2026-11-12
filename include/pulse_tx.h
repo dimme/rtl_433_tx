@@ -47,6 +47,30 @@ void tx_mod_params_defaults(tx_mod_params_t *p, uint32_t sample_rate, int is_fsk
 int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
         pulse_data_t *pulses, uint32_t sample_rate);
 
+/// Measured symbol timing (us) overriding a device's nominal widths; 0 = use nominal.
+typedef struct pulse_tx_timing {
+    float pulse_us;   ///< PPM: fixed pulse width
+    float short_us;   ///< PPM: short gap (0), PWM: short pulse (1)
+    float long_us;    ///< PPM: long gap (1), PWM: long pulse (0)
+    float gap_us;     ///< PWM: gap after a short pulse (1)
+    float gap_long_us; ///< PWM: gap after a long pulse (0)
+    float row_gap_us; ///< gap between repeated rows
+} pulse_tx_timing_t;
+
+/// Measure the actual symbol timing of a recorded pulse train for a device's
+/// modulation (PPM and PWM only). Real transmitters often deviate a lot from a
+/// decoder's nominal widths (e.g. PPM decoders only define the gaps), and
+/// strict hardware receivers reject the nominal timing.
+///
+/// @param orig recorded pulse train (widths in samples at orig->sample_rate)
+/// @param device modulation parameters used to classify the pulses/gaps
+/// @param[out] timing measured widths, fields left 0 if not measurable
+void pulse_tx_measure_timing(pulse_data_t const *orig, r_device const *device, pulse_tx_timing_t *timing);
+
+/// Like pulse_tx_from_bits() but with optional measured timing overrides.
+int pulse_tx_from_bits_timed(bitbuffer_t const *bits, r_device const *device,
+        pulse_tx_timing_t const *timing, pulse_data_t *pulses, uint32_t sample_rate);
+
 /// Synthesize interleaved IQ samples (CU8) from a pulse train.
 ///
 /// @param pulses pulse train (widths in samples at pulses->sample_rate)

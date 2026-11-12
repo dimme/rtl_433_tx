@@ -90,7 +90,10 @@ r_device *capture_find_device(list_t *r_devs, capture_t const *cap)
 int capture_pulses_from_bits(capture_t *cap, r_device const *dev)
 {
     uint32_t rate = cap->sample_rate ? cap->sample_rate : 1000000;
-    int r = pulse_tx_from_bits(&cap->bits, dev, &cap->pulses, rate);
+    // keep the real transmitter's symbol timing (from the recorded pulses)
+    pulse_tx_timing_t timing;
+    pulse_tx_measure_timing(&cap->pulses, dev, &timing);
+    int r = pulse_tx_from_bits_timed(&cap->bits, dev, &timing, &cap->pulses, rate);
     if (r == 0 && cap->is_fsk) {
         cap->pulses.fsk_f1_est = 1;
         cap->pulses.fsk_f2_est = 1;

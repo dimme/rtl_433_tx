@@ -90,11 +90,11 @@ static void encode_ppm_row(uint8_t const *row, unsigned bit_len, int s_short, in
 
 // Encode one row of PWM: short pulse = 1, long pulse = 0, fixed gap.
 static void encode_pwm_row(uint8_t const *row, unsigned bit_len, int s_short, int s_long,
-        int s_gap, pulse_data_t *pulses)
+        int s_gap_short, int s_gap_long, pulse_data_t *pulses)
 {
     for (unsigned i = 0; i < bit_len; ++i) {
         int bit = (row[i / 8] >> (7 - (i % 8))) & 1;
-        pd_append(pulses, bit ? s_short : s_long, s_gap);
+        pd_append(pulses, bit ? s_short : s_long, bit ? s_gap_short : s_gap_long);
     }
 }
 
@@ -131,19 +131,118 @@ static void encode_mc_zerobit_row(uint8_t const *row, unsigned bit_len, int s_sh
         pd_append(pulses, pulse, run);
 }
 
+static int cmp_float(void const *a, void const *b)
+{
+    float x = *(float const *)a, y = *(float const *)b;
+    return x < y ? -1 : x > y;
+}
+
+// Median of the values in [lo, hi), or 0 if fewer than 3 such values.
+static float median_in(float const *v, unsigned n, float lo, float hi)
+{
+    float sel[PD_MAX_PULSES];
+    unsigned k = 0;
+    for (unsigned i = 0; i < n; ++i) {
+        if (v[i] >= lo && v[i] < hi)
+            sel[k++] = v[i];
+    }
+    if (k < 3)
+        return 0;
+    qsort(sel, k, sizeof(float), cmp_float);
+    return sel[k / 2];
+}
+
+void pulse_tx_measure_timing(pulse_data_t const *orig, r_device const *device, pulse_tx_timing_t *timing)
+{
+    memset(timing, 0, sizeof(*timing));
+    if (!orig || !orig->sample_rate || orig->num_pulses < 4 || device->short_width <= 0)
+        return;
+
+    float us_per_samp = 1.0e6f / orig->sample_rate;
+    unsigned n        = orig->num_pulses > PD_MAX_PULSES ? PD_MAX_PULSES : orig->num_pulses;
+    float p[PD_MAX_PULSES], g[PD_MAX_PULSES];
+    for (unsigned i = 0; i < n; ++i) {
+        p[i] = orig->pulse[i] * us_per_samp;
+        g[i] = orig->gap[i] * us_per_samp;
+    }
+    float s     = device->short_width;
+    float l     = device->long_width > 0 ? device->long_width : s;
+    float mid   = (s + l) / 2;
+    float reset = device->reset_limit > 0 ? device->reset_limit : 1e9f;
+
+    switch (device->modulation) {
+    case OOK_PULSE_PPM: {
+        timing->pulse_us = median_in(p, n, 1, reset);
+        timing->short_us = median_in(g, n, s * 0.5f, mid);
+        timing->long_us  = median_in(g, n, mid, l * 1.5f);
+        float row_lo     = (timing->long_us > 0 ? timing->long_us : l) * 1.5f;
+        if (device->gap_limit > row_lo)
+            row_lo = device->gap_limit;
+        timing->row_gap_us = median_in(g, n, row_lo, reset);
+        break;
+    }
+    case OOK_PULSE_PWM:
+    case FSK_PULSE_PWM: {
+        timing->short_us = median_in(p, n, s * 0.5f, mid);
+        timing->long_us  = median_in(p, n, mid, l * 1.5f);
+        float gap_hi = device->gap_limit > 0 ? device->gap_limit : l * 1.5f;
+        // gaps after short and long pulses separately: many PWM transmitters
+        // keep a constant bit period rather than a constant gap
+        float gs[PD_MAX_PULSES], gl[PD_MAX_PULSES];
+        unsigned ns = 0, nl = 0;
+        for (unsigned i = 0; i < n; ++i) {
+            if (p[i] >= s * 0.5f && p[i] < mid)
+                gs[ns++] = g[i];
+            else if (p[i] >= mid && p[i] < l * 1.5f)
+                gl[nl++] = g[i];
+        }
+        timing->gap_us      = median_in(gs, ns, 1, gap_hi);
+        timing->gap_long_us = median_in(gl, nl, 1, gap_hi);
+        timing->row_gap_us  = median_in(g, n, gap_hi, reset);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
         pulse_data_t *pulses, uint32_t sample_rate)
+{
+    return pulse_tx_from_bits_timed(bits, device, NULL, pulses, sample_rate);
+}
+
+int pulse_tx_from_bits_timed(bitbuffer_t const *bits, r_device const *device,
+        pulse_tx_timing_t const *timing, pulse_data_t *pulses, uint32_t sample_rate)
 {
     float samples_per_us = sample_rate / 1.0e6f;
     int s_short = (int)(device->short_width * samples_per_us + 0.5f);
     int s_long  = (int)(device->long_width * samples_per_us + 0.5f);
-    int s_sync  = (int)(device->sync_width * samples_per_us + 0.5f);
     int s_reset = (int)(device->reset_limit * samples_per_us + 0.5f);
     int s_gap   = (int)(device->gap_limit * samples_per_us + 0.5f);
     if (s_long <= 0)
         s_long = s_short;
     if (s_short <= 0)
         return -1;
+    // PPM pulse width and PWM bit gap are not part of the decoder definition
+    int s_pulse   = s_short;
+    int s_bit_gap = s_short;
+    int s_bit_gap_long = 0;
+    int s_row_gap = 0;
+    if (timing) {
+        if (timing->short_us > 0)
+            s_short = (int)(timing->short_us * samples_per_us + 0.5f);
+        if (timing->long_us > 0)
+            s_long = (int)(timing->long_us * samples_per_us + 0.5f);
+        if (timing->pulse_us > 0)
+            s_pulse = (int)(timing->pulse_us * samples_per_us + 0.5f);
+        if (timing->gap_us > 0)
+            s_bit_gap = (int)(timing->gap_us * samples_per_us + 0.5f);
+        if (timing->gap_long_us > 0)
+            s_bit_gap_long = (int)(timing->gap_long_us * samples_per_us + 0.5f);
+        if (timing->row_gap_us > 0)
+            s_row_gap = (int)(timing->row_gap_us * samples_per_us + 0.5f);
+    }
 
     pulse_data_clear(pulses);
     pulses->sample_rate = sample_rate;
@@ -161,6 +260,12 @@ int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
     int row_sep   = reset_gap;
     if (reset_gap > row_floor + 2)
         row_sep = (row_floor + reset_gap) / 2;
+    // without a gap_limit the slicer can't split rows on a gap, so rows must
+    // stay separate messages (row_sep stretched to reset); keep that as is
+    if (s_gap <= 0)
+        s_row_gap = 0;
+    if (s_row_gap > row_floor && s_row_gap < reset_gap)
+        row_sep = s_row_gap;
     // PPM encodes each bit in the gap *following* a pulse, so the final bit of a
     // row needs its own terminator pulse; stretching the last data gap would
     // otherwise swallow the final bit at the slicer.
@@ -182,11 +287,12 @@ int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
             encode_pcm_row(row, bit_len, s_short, s_long, pulses);
             break;
         case OOK_PULSE_PPM:
-            encode_ppm_row(row, bit_len, s_short, s_long, s_short, pulses);
+            encode_ppm_row(row, bit_len, s_short, s_long, s_pulse, pulses);
             break;
         case OOK_PULSE_PWM:
         case FSK_PULSE_PWM:
-            encode_pwm_row(row, bit_len, s_short, s_long, s_sync > 0 ? s_short : s_short, pulses);
+            encode_pwm_row(row, bit_len, s_short, s_long, s_bit_gap,
+                    s_bit_gap_long > 0 ? s_bit_gap_long : s_bit_gap, pulses);
             break;
         case OOK_PULSE_MANCHESTER_ZEROBIT:
         case FSK_PULSE_MANCHESTER_ZEROBIT:
@@ -204,11 +310,16 @@ int pulse_tx_from_bits(bitbuffer_t const *bits, r_device const *device,
             // terminator pulse carries the row separator so the final data gap
             // keeps its short/long meaning. The whole-message reset is added
             // after the loop.
-            pd_append(pulses, s_short, last_row ? 0 : row_sep);
+            pd_append(pulses, s_pulse, last_row ? 0 : row_sep);
         }
         else if (!last_row) {
-            // separate rows without ending the message
-            pulses->gap[pulses->num_pulses - 1] += row_sep;
+            // separate rows without ending the message; a measured row gap is
+            // the whole gap, otherwise extend the last bit's gap
+            int *gap = &pulses->gap[pulses->num_pulses - 1];
+            if ((s_row_gap > 0 && row_sep == s_row_gap) || (s_gap > 0 && *gap + row_sep >= reset_gap))
+                *gap = row_sep;
+            else
+                *gap += row_sep;
         }
     }
 
