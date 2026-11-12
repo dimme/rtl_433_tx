@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 /**
  Gear Hive / Unbranded aftermarket TPMS sensor.
@@ -138,6 +141,81 @@ static int tmps_gear_hive_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return events > 0 ? events : ret;
 }
 
+/** Encoder: inverse of tmps_gear_hive_decode().
+
+    The demodulator already Manchester-decodes, so rows hold NRZ bits. For
+    every sync word found, the payload is XOR-undone, id / counter / pressure /
+    temperature are patched and the payload is re-encoded in place. The
+    trailing byte p[8] (unknown checksum, not validated by the decoder) is
+    kept from the capture.
+*/
+static int tmps_gear_hive_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const sync_pattern[] = {0x25, 0x94};
+
+    bitbuffer_t src = cap->bits;
+    char const *f;
+    int v;
+    double d;
+    int found = 0;
+
+    for (unsigned row = 0; row < src.num_rows; ++row) {
+        unsigned bitpos = 0;
+        while ((bitpos = bitbuffer_search(&src, row, bitpos, sync_pattern, 16)) + 16 + 72
+                <= src.bits_per_row[row]) {
+            unsigned start = bitpos + 16;
+            bitpos += 16;
+
+            uint8_t raw[9] = {0};
+            bitbuffer_extract_bytes(&src, row, start, raw, 72);
+            uint8_t p[9];
+            p[0] = raw[0] ^ 0x94;
+            for (int i = 1; i < 9; i++)
+                p[i] = raw[i] ^ raw[i - 1];
+            if ((p[6] & 0x3c) != 0x20 || (p[7] & 0x3f) != 0x35)
+                continue;
+
+            if ((f = capture_get_field(cap, "id"))) {
+                uint32_t id = (uint32_t)strtoul(f, NULL, 16);
+                p[2] = (uint8_t)(id >> 16);
+                p[3] = (uint8_t)(id >> 8);
+                p[4] = (uint8_t)id;
+            }
+            if (encoder_field_int(cap, "counter", &v)) {
+                p[0] = (uint8_t)v;
+                p[1] = (uint8_t)((p[1] & 0x0f) | ((v >> 4) & 0xf0));
+            }
+            if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+                long r = lround(d / 6.25);
+                r = r < 0 ? 0 : r > 0xff ? 0xff : r;
+                int base = (80 + (p[1] & 0x0f) * 64) & 0xff;
+                p[5] = (uint8_t)((r + base) & 0xff);
+            }
+            if (encoder_field_dbl(cap, "temperature_C", &d)) {
+                long t = lround(d) - 21;
+                t = t < 0 ? 0 : t > 15 ? 15 : t;
+                p[6] = (uint8_t)((p[6] & 0xfc) | (t >> 2));
+                p[7] = (uint8_t)((p[7] & 0x3f) | ((t & 0x03) << 6));
+            }
+
+            raw[0] = p[0] ^ 0x94;
+            for (int i = 1; i < 9; i++)
+                raw[i] = p[i] ^ raw[i - 1];
+            for (unsigned k = 0; k < 72; ++k)
+                encoder_set_bit(src.bb[row], start + k, (raw[k / 8] >> (7 - (k % 8))) & 1);
+            found = 1;
+        }
+    }
+    if (!found)
+        return -1;
+
+    *out_bits = src;
+
+    if (!encoder_verify(decoder, out_bits, cap))
+        return -1;
+    return 1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -157,5 +235,6 @@ r_device const tmps_gear_hive = {
         .gap_limit   = 0,
         .reset_limit = 800,
         .decode_fn   = &tmps_gear_hive_callback,
+        .encode_fn   = &tmps_gear_hive_encode,
         .fields      = output_fields,
 };
