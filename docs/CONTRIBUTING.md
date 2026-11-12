@@ -81,10 +81,10 @@ The signals will be stored individually in files named g**NNN**\_**FFF**M\_**RRR
 | **FFF** | frequency
 | **RRR** | sample rate
 
-This file can be played back with `rtl_433 -r gNNN_FFFM_RRRk.cu8`.
+This file can be played back with `rtl_433_tx -r gNNN_FFFM_RRRk.cu8`.
 
 These files are vital for understanding the signal format as well as the message data.  Use the analyzer
-with `-A` to look at the recorded signal and determine the pulse characteristics, e.g. `rtl_433 -r gNNN_FFFM_RRRk.cu8 -A`.
+with `-A` to look at the recorded signal and determine the pulse characteristics, e.g. `rtl_433_tx -r gNNN_FFFM_RRRk.cu8 -A`.
 
 Make sure you have recorded a proper set of test signals representing different conditions together
 with any and all information about the values that the signal should represent. For example, make a

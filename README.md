@@ -46,7 +46,7 @@ See [CONTRIBUTING.md](./docs/CONTRIBUTING.md).
 
 ## Running
 
-    rtl_433 -h
+    rtl_433_tx -h
 
 ```
 
@@ -692,16 +692,16 @@ Some examples:
 | Command | Description
 |---------|------------
 | `rtl_433` | Default receive mode, use the first device found, listen at 433.92 MHz at 250k sample rate.
-| `rtl_433 -C si` | Default receive mode, also convert units to metric system.
-| `rtl_433 -f 868M -s 1024k` | Listen at 868 MHz and 1024k sample rate.
-| `rtl_433 -M hires -M level` | Report microsecond accurate timestamps and add reception levels (depending on gain).
-| `rtl_433 -R 1 -R 8 -R 43` | Enable only specific decoders for desired devices.
-| `rtl_433 -R -216 -R 216` | Enable all default decoders plus a decoder disabled by default (216).
-| `rtl_433 -A` | Enable pulse analyzer. Summarizes the timings of pulses, gaps, and periods. Can be used with `-R 0` to disable decoders.
-| `rtl_433 -S all -T 120` | Save all detected signals (`g###_###M_###k.cu8`). Run for 2 minutes.
-| `rtl_433 -K FILE -r file_name` | Read a saved data file instead of receiving live data. Tag output with filenames.
-| `rtl_433 -F json -M utc \| mosquitto_pub -t home/rtl_433 -l` | Will pipe the output to network as JSON formatted MQTT messages. A test MQTT client can be found in `examples/mqtt_rtl_433_test_client.py`.
-| `rtl_433 -f 433.53M -f 434.02M -H 15` | Will poll two frequencies with 15 seconds hop interval.
+| `rtl_433_tx -C si` | Default receive mode, also convert units to metric system.
+| `rtl_433_tx -f 868M -s 1024k` | Listen at 868 MHz and 1024k sample rate.
+| `rtl_433_tx -M hires -M level` | Report microsecond accurate timestamps and add reception levels (depending on gain).
+| `rtl_433_tx -R 1 -R 8 -R 43` | Enable only specific decoders for desired devices.
+| `rtl_433_tx -R -216 -R 216` | Enable all default decoders plus a decoder disabled by default (216).
+| `rtl_433_tx -A` | Enable pulse analyzer. Summarizes the timings of pulses, gaps, and periods. Can be used with `-R 0` to disable decoders.
+| `rtl_433_tx -S all -T 120` | Save all detected signals (`g###_###M_###k.cu8`). Run for 2 minutes.
+| `rtl_433_tx -K FILE -r file_name` | Read a saved data file instead of receiving live data. Tag output with filenames.
+| `rtl_433_tx -F json -M utc \| mosquitto_pub -t home/rtl_433_tx -l` | Will pipe the output to network as JSON formatted MQTT messages. A test MQTT client can be found in `examples/mqtt_rtl_433_test_client.py`.
+| `rtl_433_tx -f 433.53M -f 434.02M -H 15` | Will poll two frequencies with 15 seconds hop interval.
 
 ## Recording, editing and re-transmitting
 

@@ -20,7 +20,7 @@
 
 char const *version_string(void)
 {
-    return "rtl_433"
+    return "rtl_433_tx"
 #ifdef GIT_VERSION
            " version " GIT_VERSION
 #ifdef GIT_BRANCH
