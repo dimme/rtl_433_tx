@@ -33,6 +33,9 @@ Data layout (nibbles):
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 static int tpms_airpuxem_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigned row, unsigned bitpos)
 {
@@ -132,6 +135,121 @@ static int tpms_airpuxem_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return events > 0 ? events : ret;
 }
 
+/** Encoder: inverse of tpms_airpuxem_decode().
+
+    Patches id, position, flags, pressure, temperature and battery in every
+    packet, recomputes the CRC-8 (the second, unverified CRC byte is kept)
+    and re-encodes the first 84 Manchester bits.
+*/
+static int tpms_airpuxem_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[3] = {0xaa, 0xaa, 0xa9};
+
+    bitbuffer_t bits = cap->bits;
+    bitbuffer_invert(&bits);
+
+    char const *f;
+    int v;
+    double d;
+    int have_id = 0, have_pos = 0, have_flags = 0, have_p = 0, have_t = 0, have_b = 0;
+    unsigned id = 0, press = 0;
+    int pos = 0, flags = 0;
+    uint8_t temp = 0, batt = 0;
+    if ((f = capture_get_field(cap, "id"))) {
+        id      = (unsigned)strtoul(f, NULL, 16);
+        have_id = 1;
+    }
+    if (encoder_field_int(cap, "position", &v)) {
+        pos      = v & 0x07;
+        have_pos = 1;
+    }
+    if (encoder_field_int(cap, "flags", &v)) {
+        flags      = v & 0x07;
+        have_flags = 1;
+    }
+    if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+        long p = lround(d) + 100;
+        press  = (unsigned)(p < 0 ? 0 : p > 0x3ff ? 0x3ff : p);
+        have_p = 1;
+        encoder_set_dbl(cap, "pressure_kPa", (double)press - 100);
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d);
+        temp   = (uint8_t)(int8_t)(t < -128 ? -128 : t > 127 ? 127 : t);
+        have_t = 1;
+        encoder_set_dbl(cap, "temperature_C", (int8_t)temp);
+    }
+    if (encoder_field_dbl(cap, "battery_V", &d)) {
+        long bv = lround(d / 0.02);
+        batt    = (uint8_t)(bv < 0 ? 0 : bv > 0xff ? 0xff : bv);
+        have_b  = 1;
+        encoder_set_dbl(cap, "battery_V", batt * 0.02);
+    }
+
+    int patched = 0;
+    char code_str[11 * 2 + 1] = {0};
+    for (int row = 0; row < bits.num_rows; ++row) {
+        unsigned bitpos = 0;
+        while ((bitpos = bitbuffer_search(&bits, row, bitpos, preamble_pattern, 24)) + 80 <= bits.bits_per_row[row]) {
+            bitbuffer_t dec = {0};
+            bitbuffer_manchester_decode(&bits, row, bitpos + 24, &dec, 354);
+            uint8_t pl[8], crcs[2];
+            if (dec.bits_per_row[0] < 84 || (dec.bb[0][0] >> 4) != 0x5) {
+                bitpos += 2;
+                continue;
+            }
+            bitbuffer_extract_bytes(&dec, 0, 4, pl, 64);
+            bitbuffer_extract_bytes(&dec, 0, 68, crcs, 16);
+            if (crcs[0] != crc8(pl, 8, 0x2f, 0xaa)) {
+                bitpos += 2;
+                continue;
+            }
+            if (have_id) {
+                pl[0] = (uint8_t)(id >> 24);
+                pl[1] = (uint8_t)(id >> 16);
+                pl[2] = (uint8_t)(id >> 8);
+                pl[3] = (uint8_t)id;
+            }
+            if (have_flags)
+                pl[4] = (uint8_t)((pl[4] & 0x8f) | flags << 4);
+            if (have_pos)
+                pl[4] = (uint8_t)((pl[4] & 0xf8) | pos);
+            if (have_p) {
+                pl[4] = (uint8_t)((pl[4] & 0x77) | ((press >> 8) & 1) << 7 | ((press >> 9) & 1) << 3);
+                pl[5] = (uint8_t)press;
+            }
+            if (have_t)
+                pl[6] = temp;
+            if (have_b)
+                pl[7] = batt;
+            crcs[0] = crc8(pl, 8, 0x2f, 0xaa);
+
+            // 4-bit header, 64-bit payload, 2 CRC bytes = 84 bits
+            uint8_t msg[11];
+            msg[0] = (uint8_t)(0x50 | pl[0] >> 4);
+            for (int i = 1; i < 8; i++)
+                msg[i] = (uint8_t)(pl[i - 1] << 4 | pl[i] >> 4);
+            msg[8]  = (uint8_t)(pl[7] << 4 | crcs[0] >> 4);
+            msg[9]  = (uint8_t)(crcs[0] << 4 | crcs[1] >> 4);
+            msg[10] = (uint8_t)(crcs[1] << 4);
+            encoder_manchester_encode(bits.bb[row], bitpos + 24, msg, 84, 0);
+
+            bitbuffer_t chk = {0};
+            bitbuffer_manchester_decode(&bits, row, bitpos + 24, &chk, 354);
+            bitrow_snprint(chk.bb[0], 11 * 8, code_str, sizeof(code_str));
+            patched++;
+            bitpos += 24 + 168;
+        }
+    }
+    if (!patched)
+        return -1;
+    capture_set_field(cap, "code", code_str);
+
+    bitbuffer_invert(&bits);
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -153,5 +271,6 @@ r_device const tpms_airpuxem = {
         .long_width  = 52,
         .reset_limit = 150,
         .decode_fn   = &tpms_airpuxem_callback,
+        .encode_fn   = &tpms_airpuxem_encode,
         .fields      = output_fields,
 };
