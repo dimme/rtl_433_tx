@@ -97,17 +97,19 @@ See [CONTRIBUTING.md](./docs/CONTRIBUTING.md).
   [-w <filename> | help] Save data stream to output file (a '-' dumps samples to stdout)
   [-W <filename> | help] Save data stream to output file, overwrite existing file
 		= Data output options =
-  [-F log | kv | json | csv | mqtt | influx | syslog | trigger | rtl_tcp | http | null | help] Produce decoded output in given format.
+  [-F log | kv | json | csv | mqtt | influx | syslog | trigger | rtl_tcp | http | capture | null | help] Produce decoded output in given format.
        Append output to file with :<filename> (e.g. -F csv:log.csv), defaults to stdout.
        Specify host/port for syslog with e.g. -F syslog:127.0.0.1:1514
+       Record received transmissions to a JSON capture file with -F capture[:<filename>] (default: rtl_433_capture.json).
   [-M time[:<options>] | protocol | level | noise[:<secs>] | stats | bits | help] Add various meta data to each output.
   [-K FILE | PATH | <tag> | <key>=<tag>] Add an expanded token or fixed tag to every output line.
   [-C native | si | customary] Convert units in decoded output.
 		= Record / Edit / Re-transmit options =
-  [-F capture[:<filename>]] Record received transmissions (raw pulses, bits, decoded values) to a JSON capture file (default: rtl_433_capture.json).
   [-j <filename>] Transmit (re-send) captures from a JSON capture file (enters transmit mode).
   [-e <key>=<value>] Edit a decoded field before transmit (repeatable). Special keys: freq_hz, sample_rate, repeats.
   [-o <filename>] Transmit output target: .json writes an (edited) capture, .cu8/.cs16/.cf32 writes an IQ file; omit to transmit via SDR (-d/-f/-s/-g).
+       TX gain (-g) is capped at 23 dB (HackRF One: VGA only, TX RF amp off).
+  [--i-want-to-fry-my-tx] DANGER: lift the TX gain cap. May permanently destroy your TX amplifier!
   [-n <value>] Specify number of samples to take (each sample is an I/Q pair)
   [-T <seconds>] Specify number of seconds to run, also 12:34 or 1h23m45s
   [-E hop | quit] Hop/Quit after outputting successful event(s)
@@ -596,7 +598,7 @@ E.g. -X "n=doorbell,m=OOK_PWM,s=400,l=800,r=7000,g=1000,match={24}0xa9878c,repea
 
 
 		= Output format option =
-  [-F log|kv|json|csv|mqtt|influx|syslog|trigger|rtl_tcp|http|null] Produce decoded output in given format.
+  [-F log|kv|json|csv|mqtt|influx|syslog|trigger|rtl_tcp|http|capture|null] Produce decoded output in given format.
 	Without this option the default is LOG and KV output. Use "-F null" to remove the default.
 	Append output to file with :<filename> (e.g. -F csv:log.csv), defaults to stdout.
   [-F mqtt[s][:[//]host[:port][,<options>]] (default: localhost:1883)
@@ -628,6 +630,8 @@ E.g. -X "n=doorbell,m=OOK_PWM,s=400,l=800,r=7000,g=1000,match={24}0xa9878c,repea
 	Add a rtl_tcp pass-through server
   [-F http[:[//]bind[:port]] (default: 0.0.0.0:8433)
 	Add a HTTP API server, a UI is at e.g. http://localhost:8433/
+  [-F capture[:<filename>]] (default: rtl_433_capture.json)
+	Record received transmissions (raw pulses, bits, decoded values) to a JSON capture file for later edit/re-transmit (-j).
 
 
 		= Meta information option =
@@ -738,6 +742,20 @@ Every successfully decoded transmission is appended to the capture file
 the capture, overridable per the edit keys below; use `-g` for TX gain):
 
     rtl_433_tx -j caps.json -d driver=hackrf -g 20
+
+TX gain is capped at **23 dB** by default. On a HackRF One (via SoapyHackRF) an
+overall TX gain above 23 dB switches on the TX RF amplifier (MGA-81563), which
+is the part most commonly destroyed on HackRF boards (see
+[greatscottgadgets/hackrf#974](https://github.com/greatscottgadgets/hackrf/issues/974)).
+Up to 23 dB only the IF VGA is used and the amp stays bypassed. Larger `-g`
+values are clamped with a warning.
+
+> [!CAUTION]
+> `--i-want-to-fry-my-tx` lifts the cap. Use it only if you know what you are
+> doing: always transmit into a matched 50 Ω antenna or dummy load/attenuator,
+> never into nothing or straight into another receiver. Higher gain also means
+> more harmonics/spurious emissions that may be illegal. Any damage to your
+> hardware, or trouble with your regulator, is entirely your own fault.
 
 With `-o`, it writes to a file instead of transmitting:
 
