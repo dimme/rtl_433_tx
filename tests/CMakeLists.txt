@@ -46,6 +46,12 @@ add_executable(test_lora_fm lora-fm-test.c)
 target_link_libraries(test_lora_fm r_433)
 add_test(lora_fm_test test_lora_fm)
 
+# Transmit timing fidelity regression: rebuilt PPM/PWM frames must keep the
+# recorded sensor timing, not fall back to nominal decoder widths.
+add_executable(test_tx_timing tx-timing-test.c)
+target_link_libraries(test_tx_timing r_433)
+add_test(tx_timing_test test_tx_timing)
+
 ########################################################################
 # Define integration tests
 ########################################################################
