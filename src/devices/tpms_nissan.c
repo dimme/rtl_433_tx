@@ -124,6 +124,7 @@ static int tpms_nissan_encode(r_device const *decoder, struct capture *cap, bitb
     int pressure_raw = (int)lround((psi + 3.0) * 4.0);
     if (pressure_raw < 0) pressure_raw = 0;
     if (pressure_raw > 255) pressure_raw = 255;
+    encoder_set_dbl(cap, "pressure_PSI", pressure_raw * 0.25 - 3.0);
 
     uint8_t b[5];
     b[0] = (uint8_t)(((mode & 7) << 5) | ((id >> 19) & 0x1f));

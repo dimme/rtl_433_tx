@@ -153,11 +153,14 @@ static int tpms_truck_encode(r_device const *decoder, struct capture *cap, bitbu
         int p = (int)lround(atof(f));
         if (p < 0) p = 0;
         if (p > 0xfff) p = 0xfff;
+        encoder_set_dbl(cap, "pressure_kPa", p);
         b[5] = (uint8_t)((b[5] & 0xf0) | ((p >> 8) & 0x0f));
         b[6] = (uint8_t)(p & 0xff);
     }
-    if ((f = capture_get_field(cap, "temperature_C")))
+    if ((f = capture_get_field(cap, "temperature_C"))) {
         b[7] = (uint8_t)((int)lround(atof(f)) & 0xff);
+        encoder_set_dbl(cap, "temperature_C", b[7]);
+    }
 
     // recompute XOR checksum so xor_bytes(b, 9) == 0
     b[8] = (uint8_t)(b[0] ^ b[1] ^ b[2] ^ b[3] ^ b[4] ^ b[5] ^ b[6] ^ b[7]);

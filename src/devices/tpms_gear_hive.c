@@ -188,12 +188,14 @@ static int tmps_gear_hive_encode(r_device const *decoder, struct capture *cap, b
             if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
                 long r = lround(d / 6.25);
                 r = r < 0 ? 0 : r > 0xff ? 0xff : r;
+                encoder_set_dbl(cap, "pressure_kPa", r * 6.25);
                 int base = (80 + (p[1] & 0x0f) * 64) & 0xff;
                 p[5] = (uint8_t)((r + base) & 0xff);
             }
             if (encoder_field_dbl(cap, "temperature_C", &d)) {
                 long t = lround(d) - 21;
                 t = t < 0 ? 0 : t > 15 ? 15 : t;
+                encoder_set_dbl(cap, "temperature_C", t + 21);
                 p[6] = (uint8_t)((p[6] & 0xfc) | (t >> 2));
                 p[7] = (uint8_t)((p[7] & 0x3f) | ((t & 0x03) << 6));
             }

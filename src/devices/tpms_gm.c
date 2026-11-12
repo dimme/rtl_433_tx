@@ -169,10 +169,12 @@ static int tpms_gm_encode(r_device const *decoder, struct capture *cap, bitbuffe
     if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
         long p = lround(d / 2.75);
         b[13] = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+        encoder_set_dbl(cap, "pressure_kPa", b[13] * 2.75);
     }
     if (encoder_field_dbl(cap, "temperature_C", &d)) {
         long t = lround(d) + 60;
         b[14] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+        encoder_set_dbl(cap, "temperature_C", b[14] - 60);
     }
 
     uint8_t sum = 0;
@@ -187,9 +189,6 @@ static int tpms_gm_encode(r_device const *decoder, struct capture *cap, bitbuffe
     capture_set_field(cap, "battery_ok", tmp);
     snprintf(tmp, sizeof(tmp), "%d", !(flags & 0x103));
     capture_set_field(cap, "learn_mode", tmp);
-    // stored value is the decoded quantization of the edited pressure
-    snprintf(tmp, sizeof(tmp), "%g", b[13] * 2.75);
-    capture_set_field(cap, "pressure_kPa", tmp);
 
     for (unsigned k = 0; k < 128; ++k)
         encoder_set_bit(src.bb[0], k, (b[k / 8] >> (7 - (k % 8))) & 1);

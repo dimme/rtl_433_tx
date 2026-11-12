@@ -195,10 +195,12 @@ static int tpms_trw_encode(r_device const *decoder, struct capture *cap, bitbuff
     if (encoder_field_dbl(cap, "pressure_PSI", &d)) {
         long p = lround(d / 0.4);
         b[6] = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+        encoder_set_dbl(cap, "pressure_PSI", b[6] * 0.4);
     }
     if (encoder_field_dbl(cap, "temperature_C", &d)) {
         long t = lround(d) + 50;
         b[7] = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+        encoder_set_dbl(cap, "temperature_C", b[7] - 50);
     }
     int orig_motion = b[8];
     if (encoder_field_int(cap, "motion_flags", &v))

@@ -150,12 +150,14 @@ static int tpms_schrader_motorcycle_encode(r_device const *decoder, struct captu
         if (p > 0x3ff) p = 0x3ff;
         b[3] = (uint8_t)((b[3] & 0xfc) | (p >> 8));
         b[4] = (uint8_t)(p & 0xff);
+        encoder_set_dbl(cap, "pressure_kPa", p * 0.5);
     }
     if (encoder_field_dbl(cap, "temperature_C", &d)) {
         long t = lround(d) + 50;
         if (t < 0) t = 0;
         if (t > 0xff) t = 0xff;
         b[5] = (uint8_t)t;
+        encoder_set_dbl(cap, "temperature_C", t - 50);
     }
 
     b[6] = crc8(b, 6, 0x07, 0xe0);
