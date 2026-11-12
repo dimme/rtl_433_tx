@@ -78,6 +78,9 @@ Audi Pressure Alert:
 */
 
 #include "decoder.h"
+#include "r_encoder.h"
+#include <stdlib.h>
+#include <math.h>
 
 static int tpms_bmw_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -167,6 +170,76 @@ static int tpms_bmw_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of tpms_bmw_decode().
+
+    Keeps the message length (BMW 11 bytes / Audi alert 8 bytes), patches
+    brand, id, pressure, temperature and flags, recomputes the CRC-8 and
+    re-encodes the inverted Manchester payload.
+*/
+static int tpms_bmw_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const preamble_pattern[] = {0xaa, 0x59};
+
+    if (cap->bits.num_rows != 1)
+        return -1;
+    bitbuffer_t bits = cap->bits;
+    unsigned pos     = bitbuffer_search(&bits, 0, 0, preamble_pattern, 16);
+    if (pos >= bits.bits_per_row[0])
+        return -1;
+    pos += 16;
+
+    bitbuffer_t decoded = {0};
+    bitbuffer_manchester_decode(&bits, 0, pos, &decoded, 88);
+    unsigned len_msg = decoded.bits_per_row[0] >= 88 ? 11 : decoded.bits_per_row[0] >= 64 ? 8 : 0;
+    if (!len_msg)
+        return -1;
+    bitbuffer_invert(&decoded);
+    uint8_t b[11];
+    memcpy(b, decoded.bb[0], len_msg);
+
+    char const *f;
+    int v;
+    double d;
+    if (encoder_field_int(cap, "brand", &v))
+        b[0] = (uint8_t)v;
+    if ((f = capture_get_field(cap, "id"))) {
+        uint32_t id = (uint32_t)strtoul(f, NULL, 16);
+        b[1]        = (uint8_t)(id >> 24);
+        b[2]        = (uint8_t)(id >> 16);
+        b[3]        = (uint8_t)(id >> 8);
+        b[4]        = (uint8_t)id;
+    }
+    if (encoder_field_dbl(cap, "pressure_kPa", &d)) {
+        long p = lround(d / 2.45);
+        b[5]   = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+        encoder_set_dbl(cap, "pressure_kPa", (double)(float)(b[5] * 2.45));
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d) + 52;
+        b[6]   = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+        encoder_set_dbl(cap, "temperature_C", b[6] - 52.0);
+    }
+    if (len_msg == 11) {
+        if (encoder_field_int(cap, "flags1", &v))
+            b[7] = (uint8_t)v;
+        if (encoder_field_int(cap, "flags2", &v))
+            b[8] = (uint8_t)v;
+        if (encoder_field_int(cap, "flags3", &v))
+            b[9] = (uint8_t)v;
+    }
+    b[len_msg - 1] = crc8(b, len_msg - 1, 0x2f, 0xaa);
+
+    encoder_manchester_encode(bits.bb[0], pos, b, len_msg * 8, 1);
+
+    char msg_str[23] = {0};
+    for (unsigned i = 0; i < len_msg; i++)
+        snprintf(msg_str + 2 * i, 3, "%02x", b[i]);
+    capture_set_field(cap, "msg", msg_str);
+
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -190,5 +263,6 @@ r_device const tpms_bmw = {
         .long_width  = 25,
         .reset_limit = 100,
         .decode_fn   = &tpms_bmw_decode,
+        .encode_fn   = &tpms_bmw_encode,
         .fields      = output_fields,
 };
