@@ -26,6 +26,9 @@ Hyundai WS SENZOR Remote Temperature Sensor.
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 #define WS_PACKETLEN 24
 #define WS_MINREPEATS 4
@@ -82,6 +85,33 @@ static int wssensor_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of wssensor_decode(), patches every captured repeat. */
+static int wssensor_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[3];
+    if (encoder_template_rows(cap, WS_PACKETLEN, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[0] = (uint8_t)(temp >> 4);
+        b[1] = (uint8_t)((temp & 0x0f) << 4 | (b[1] & 0x0f));
+    }
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x08) | (v ? 0x08 : 0));
+    if (encoder_field_int(cap, "button", &v))
+        b[1] = (uint8_t)((b[1] & ~0x04) | (v ? 0x04 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x03) | ((v - 1) & 0x03));
+    if (encoder_field_int(cap, "id", &v))
+        b[2] = (uint8_t)v;
+
+    encoder_apply_rows(out_bits, WS_PACKETLEN, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -100,5 +130,6 @@ r_device const wssensor = {
         .gap_limit   = 2400,
         .reset_limit = 4400,
         .decode_fn   = &wssensor_decode,
+        .encode_fn   = &wssensor_encode,
         .fields      = output_fields,
 };

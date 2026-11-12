@@ -12,6 +12,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /** @fn int infactory_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 inFactory outdoor temperature and humidity sensor.
@@ -118,6 +121,46 @@ static int infactory_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of infactory_decode(), recomputes the CRC-4. */
+static int infactory_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 40, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "button", &v))
+        b[1] = (uint8_t)((b[1] & ~0x08) | (v ? 0x08 : 0));
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x04) | (v ? 0 : 0x04));
+    if (encoder_field_dbl(cap, "temperature_F", &t)) {
+        int temp = (int)lround(t * 10.0 + 900.0);
+        if (temp < 0) temp = 0;
+        if (temp > 0xfff) temp = 0xfff;
+        b[2] = (uint8_t)(temp >> 4);
+        b[3] = (uint8_t)((temp & 0x0f) << 4 | (b[3] & 0x0f));
+    }
+    if (encoder_field_int(cap, "humidity", &v)) {
+        if (v < 0) v = 0;
+        if (v > 100) v = 100;
+        b[3] = (uint8_t)((b[3] & 0xf0) | (v / 10)); // 100 => 'A0'
+        b[4] = (uint8_t)((v % 10) << 4 | (b[4] & 0x0f));
+    }
+    if (encoder_field_int(cap, "channel", &v))
+        b[4] = (uint8_t)((b[4] & ~0x03) | (v & 0x03));
+
+    // CRC-4 is computed with the channel nibble in the CRC position
+    uint8_t msg[4] = {b[0], (uint8_t)((b[1] & 0x0f) | (b[4] & 0x0f) << 4), b[2], b[3]};
+    uint8_t crc = crc4(msg, 4, 0x13, 0) ^ (b[4] >> 4);
+    b[1] = (uint8_t)((crc & 0x0f) << 4 | (b[1] & 0x0f));
+
+    encoder_apply_rows(out_bits, 40, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -160,5 +203,6 @@ r_device const infactory = {
         .reset_limit = 5000, // Maximum gap size before End Of Message [us]
         .tolerance   = 750,  // Width interval 0=[1250..2750] 1=[3250..4750], should be quite robust
         .decode_fn   = &infactory_decode,
+        .encode_fn   = &infactory_encode,
         .fields      = output_fields,
 };

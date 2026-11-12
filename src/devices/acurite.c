@@ -30,6 +30,9 @@ Devices decoded:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 #define ACURITE_515_BITLEN        50
 #define ACURITE_TXR_BITLEN        56
@@ -1958,6 +1961,34 @@ static int acurite_606_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of acurite_606_decode(), patches every captured repeat. */
+static int acurite_606_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[4];
+    if (encoder_template_rows(cap, 32, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x80) | (v ? 0x80 : 0));
+    if (encoder_field_int(cap, "button", &v))
+        b[1] = (uint8_t)((b[1] & ~0x40) | (v ? 0x40 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1] = (uint8_t)((b[1] & 0xf0) | (temp >> 8));
+        b[2] = (uint8_t)(temp & 0xff);
+    }
+    b[3] = lfsr_digest8(b, 3, 0x98, 0xf1);
+
+    encoder_apply_rows(out_bits, 32, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 /**
 Acurite 590TX temperature/humidity sensor.
 
@@ -2310,6 +2341,7 @@ r_device const acurite_606 = {
         .gap_limit   = 7000,
         .reset_limit = 10000,
         .decode_fn   = &acurite_606_decode,
+        .encode_fn   = &acurite_606_encode,
         .fields      = acurite_606_output_fields,
 };
 

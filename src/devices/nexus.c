@@ -9,6 +9,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 Nexus sensor protocol with ID, temperature and optional humidity.
@@ -137,6 +140,46 @@ static int nexus_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of nexus_decode(), patches every captured repeat. */
+static int nexus_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 36, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x80) | (v ? 0x80 : 0));
+    if (encoder_field_int(cap, "test", &v))
+        b[1] = (uint8_t)((b[1] & ~0x40) | (v ? 0x40 : 0));
+    else
+        b[1] &= (uint8_t)~0x40; // "test" is only reported when set
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1] = (uint8_t)((b[1] & 0xf0) | (temp >> 8));
+        b[2] = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "humidity", &v)) {
+        b[3] = (uint8_t)(0xf0 | ((v >> 4) & 0x0f));
+        b[4] = (uint8_t)((v & 0x0f) << 4);
+    }
+    else {
+        char const *m = capture_get_field(cap, "model");
+        if (m && !strcmp(m, "Nexus-T")) {
+            b[3] = 0xf0; // temperature-only sensor: no humidity
+            b[4] = 0x00;
+        }
+    }
+
+    encoder_apply_rows(out_bits, 36, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 /**
 Nexus Sauna sensor with ID, temperature, battery and test flag.
 
@@ -224,6 +267,7 @@ r_device const nexus = {
         .gap_limit   = 3000,
         .reset_limit = 5000,
         .decode_fn   = &nexus_decode,
+        .encode_fn   = &nexus_encode,
         .priority    = 10, // Eliminate false positives by letting Rubicson-Temperature go earlier
         .fields      = output_fields,
 };

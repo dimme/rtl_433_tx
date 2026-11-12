@@ -118,3 +118,70 @@ int capture_rebuild(capture_t *cap, r_device const *dev)
         capture_pulses_from_bits(cap, dev);
     return 1;
 }
+
+int encoder_field_int(capture_t const *cap, char const *key, int *out)
+{
+    char const *f = capture_get_field(cap, key);
+    if (!f || !*f)
+        return 0;
+    *out = (int)strtol(f, NULL, 10);
+    return 1;
+}
+
+int encoder_field_dbl(capture_t const *cap, char const *key, double *out)
+{
+    char const *f = capture_get_field(cap, key);
+    if (!f || !*f)
+        return 0;
+    *out = atof(f);
+    return 1;
+}
+
+static int encoder_is_payload_row(unsigned len, unsigned nbits)
+{
+    return len + 1 >= nbits && len <= nbits + 2;
+}
+
+int encoder_template_rows(capture_t const *cap, unsigned nbits, uint8_t *base, bitbuffer_t *out)
+{
+    *out = cap->bits;
+    // prefer the most repeated full-length row, else any full-length row
+    bitbuffer_t tmp = cap->bits;
+    int r = bitbuffer_find_repeated_row(&tmp, 1, nbits);
+    if (r >= 0 && tmp.bits_per_row[r] > nbits + 2)
+        r = -1;
+    for (unsigned i = 0; r < 0 && i < cap->bits.num_rows; ++i) {
+        if (cap->bits.bits_per_row[i] >= nbits && cap->bits.bits_per_row[i] <= nbits + 2)
+            r = (int)i;
+    }
+    if (r < 0)
+        return -1;
+    memset(base, 0, (nbits + 7) / 8);
+    bitbuffer_extract_bytes(out, (unsigned)r, 0, base, nbits);
+    return 0;
+}
+
+void encoder_apply_rows(bitbuffer_t *out, unsigned nbits, uint8_t const *payload)
+{
+    for (unsigned i = 0; i < out->num_rows; ++i) {
+        unsigned len = out->bits_per_row[i];
+        if (!encoder_is_payload_row(len, nbits))
+            continue;
+        uint8_t *row = out->bb[i];
+        if (len < nbits) {
+            out->bits_per_row[i] = (uint16_t)nbits;
+        }
+        for (unsigned k = 0; k < nbits; ++k) {
+            uint8_t mask = (uint8_t)(0x80 >> (k % 8));
+            if (payload[k / 8] & mask)
+                row[k / 8] |= mask;
+            else
+                row[k / 8] &= (uint8_t)~mask;
+        }
+        if (len < nbits) {
+            // clear any stale bits after the restored payload
+            for (unsigned k = nbits; k < (unsigned)((nbits + 7) / 8) * 8; ++k)
+                row[k / 8] &= (uint8_t)~(0x80 >> (k % 8));
+        }
+    }
+}
