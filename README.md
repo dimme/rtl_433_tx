@@ -109,7 +109,7 @@ See [CONTRIBUTING.md](./docs/CONTRIBUTING.md).
   [-e <key>=<value>] Edit a decoded field before transmit (repeatable). Special keys: freq_hz, sample_rate, repeats.
   [-o <filename>] Transmit output target: .json writes an (edited) capture, .cu8/.cs16/.cf32 writes an IQ file; omit to transmit via SDR (-d/-f/-s/-g).
        TX gain (-g) is capped at 23 dB (HackRF One: VGA only, TX RF amp off).
-  [--i-want-to-fry-my-amp] DANGER: lift the TX gain cap. Reflected power may permanently destroy the TX RF amp!
+  [--fry-my-amp] DANGER: lift the TX gain cap. Reflected power may permanently destroy the TX RF amp!
   [-n <value>] Specify number of samples to take (each sample is an I/Q pair)
   [-T <seconds>] Specify number of seconds to run, also 12:34 or 1h23m45s
   [-E hop | quit] Hop/Quit after outputting successful event(s)
@@ -751,7 +751,7 @@ Up to 23 dB only the IF VGA is used and the amp stays bypassed. Larger `-g`
 values are clamped with a warning.
 
 > [!CAUTION]
-> `--i-want-to-fry-my-amp` lifts the cap. Use it only if you know what you are
+> `--fry-my-amp` lifts the cap. Use it only if you know what you are
 > doing: with the TX RF amp on, a bad match (no antenna, wrong antenna, or
 > straight into another receiver) reflects power back into the amp and can
 > kill it. Always transmit into a matched 50 Ω antenna or dummy load/attenuator.
