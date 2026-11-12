@@ -1581,11 +1581,16 @@ static int run_transmit(r_cfg_t *cfg)
 
         r_device *dev = capture_find_device(&cfg->demod->r_devs, &cap);
 
-        if (edited) {
+        // Rebuild from the capture's decoded fields whenever edits were given
+        // (-e) or the device has a dedicated encoder. The latter ensures values
+        // edited directly in the capture file's "decoded" block are transmitted;
+        // the raw-bit replay path below would otherwise ignore them and re-send
+        // the originally recorded values.
+        if (edited || (dev && dev->encode_fn)) {
             int rc = capture_rebuild(&cap, dev);
             if (rc < 0) {
                 print_logf(LOG_WARNING, "Transmit",
-                        "Capture %u: could not rebuild raw data after edit (replaying original pulses)", count);
+                        "Capture %u: could not rebuild raw data (replaying original pulses)", count);
             }
             else if (rc == 0) {
                 print_logf(LOG_NOTICE, "Transmit", "Capture %u: rebuilt via %s encoder", count, cap.model ? cap.model : "device");
