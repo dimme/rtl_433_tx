@@ -29,6 +29,9 @@ Data is transmitted with 6 bytes row:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int opus_xt300_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -95,6 +98,30 @@ static int opus_xt300_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return ret > 0 ? ret : fail_code;
 }
 
+/** Encoder: inverse of opus_xt300_decode(). 48-bit; byte 5 is the sum of
+    bytes 1-4. */
+static int opus_xt300_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[6];
+    if (encoder_template_rows(cap, 48, b, out_bits) < 0)
+        return -1;
+
+    b[0] = 0xff; // preamble
+    b[4] = 0xff; // spare
+    int v;
+    double t;
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x03) | (v & 0x03));
+    if (encoder_field_int(cap, "moisture", &v))
+        b[2] = (uint8_t)v;
+    if (encoder_field_dbl(cap, "temperature_C", &t))
+        b[3] = (uint8_t)(((int)lround(t) + 40) & 0xff);
+    b[5] = (uint8_t)(add_bytes(b + 1, 4) & 0xff);
+
+    encoder_emit_frames(out_bits, 0, b, 48, 6, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "channel",
@@ -112,5 +139,6 @@ r_device const opus_xt300 = {
         .gap_limit   = 10000,
         .reset_limit = 31000,
         .decode_fn   = &opus_xt300_decode,
+        .encode_fn   = &opus_xt300_encode,
         .fields      = output_fields,
 };

@@ -238,6 +238,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
 | 113 | Ambient Weather WH31E / EcoWitt WH31B (`AmbientWeather-WH31E`) | FSK; thermo-hygro subtype only |
 | 114 | Maverick ET-73 BBQ thermometer (`Maverick-ET73`) | |
+| 121 | Opus/Imagintronix XT300 soil moisture (`Opus-XT300`) | |
 | 125 | TS-FT002 ultrasonic tank level + temperature (`TS-FT002`) | |
 | 129 | Eurochron temperature/humidity sensor (`Eurochron-TH`) | Disabled by default for receive |
 | 137 | Globaltronics Quigg GT-TMBBQ-05 (`GT-TMBBQ05`) | |
