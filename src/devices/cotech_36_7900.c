@@ -10,6 +10,10 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
+#include <stdio.h>
 
 /**
 Cotech 36-7900 rain gauge, 433 MHz.
@@ -86,6 +90,43 @@ static int cotech_36_7900_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of cotech_36_7900_decode(). 60-bit, no checksum; the id is
+    the fixed 0xAB8 marker plus the temperature high nibble, so it is derived
+    rather than independently editable. */
+static int cotech_36_7900_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[8];
+    if (encoder_template_rows(cap, 60, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    b[0] = 0xab; // fixed marker high byte
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1]     = (uint8_t)(0x80 | ((temp >> 8) & 0x0f)); // marker nibble 0x8 + temp high
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+    else {
+        b[1] = (uint8_t)(0x80 | (b[1] & 0x0f));
+    }
+    b[3] = 0x00;
+    b[4] = 0x00;
+    b[5] = 0x00;
+    if (encoder_field_int(cap, "rain_raw", &v)) {
+        b[6] = (uint8_t)((v >> 4) & 0xff);
+        b[7] = (uint8_t)((v & 0x0f) << 4);
+    }
+
+    // keep the derived id field (marker + temp high nibble) consistent
+    char idbuf[16];
+    snprintf(idbuf, sizeof(idbuf), "%d", (b[0] << 8) | b[1]);
+    capture_set_field(cap, "id", idbuf);
+
+    encoder_emit_frames(out_bits, 0, b, 60, 10, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -102,6 +143,7 @@ r_device const cotech_36_7900 = {
         .gap_limit   = 3500,
         .reset_limit = 4500,
         .decode_fn   = &cotech_36_7900_decode,
+        .encode_fn   = &cotech_36_7900_encode,
         .disabled    = 1, // no computed checksum, only a reserved-bits plausibility check
         .fields      = output_fields,
 };

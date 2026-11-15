@@ -254,6 +254,8 @@ Devices without an encoder fall back to raw-bit replay.
 | 357 | Auriol HG04641A temperature station (`Auriol-HG04641A`) | Disabled by default for receive |
 | 284 | Baldr E0666TH Thermo-Hygrometer (`Baldr-E0666TH`) | |
 
+| 382 | Cotech 36-7900 rain gauge (`Cotech-367900`) | Disabled by default for receive; id is a fixed marker |
+
 ### Remotes and switches
 
 | Protocol | Device | Notes |
