@@ -231,13 +231,16 @@ Devices without an encoder fall back to raw-bit replay.
 | 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
 | 114 | Maverick ET-73 BBQ thermometer (`Maverick-ET73`) | |
 | 129 | Eurochron temperature/humidity sensor (`Eurochron-TH`) | Disabled by default for receive |
+| 137 | Globaltronics Quigg GT-TMBBQ-05 (`GT-TMBBQ05`) | |
 | 138 | Globaltronics GT-WT-03 (`GT-WT03`) | |
 | 146 | Auriol AFW2A1 (`Auriol-AFW2A1`) | |
 | 162 | ThermoPro TX2 (`Thermopro-TX2`) | Disabled by default for receive |
 | 183 | Auriol AHFL 433B2 (`Auriol-AHFL`) | |
 | 245 | ThermoPro TX-2C / TX-2B (`Thermopro-TX2C`) | Disabled by default for receive |
+| 325 | Thermor A6N 132TX (`Thermor-A6N132TX`) | |
 | 339 | Florabest FB-TH-1 BBQ thermometer (`Florabest-FBTH1`) | |
 | 341 | Esun EN2053 two-channel BBQ thermometer (`Esun-EN2053`) | |
+| 357 | Auriol HG04641A temperature station (`Auriol-HG04641A`) | Disabled by default for receive |
 | 284 | Baldr E0666TH Thermo-Hygrometer (`Baldr-E0666TH`) | |
 
 ### TPMS

@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 Auriol HG04641A temperature station (Lidl, IAN 307350).
@@ -102,6 +105,40 @@ static int auriol_hg04641a_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of auriol_hg04641a_decode(). 36-bit, 4-bit nibble-sum. */
+static int auriol_hg04641a_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 36, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v)) {
+        b[0] = (uint8_t)((v >> 8) & 0xff);
+        b[1] = (uint8_t)(v & 0xff);
+    }
+    int bat_low = (b[2] >> 4) & 0x8; // keep from template unless edited
+    if (encoder_field_int(cap, "battery_ok", &v))
+        bat_low = v ? 0 : 0x8;
+    int flags = 0x1 | bat_low; // bit 0 always set, bits 1-2 clear
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[2]     = (uint8_t)((flags << 4) | ((temp >> 8) & 0x0f));
+        b[3]     = (uint8_t)(temp & 0xff);
+    }
+    else {
+        b[2] = (uint8_t)((flags << 4) | (b[2] & 0x0f));
+    }
+
+    int sum = (b[0] >> 4) + (b[0] & 0xf) + (b[1] >> 4) + (b[1] & 0xf)
+            + (b[2] >> 4) + (b[2] & 0xf) + (b[3] >> 4) + (b[3] & 0xf);
+    b[4] = (uint8_t)((sum & 0x0f) << 4);
+
+    encoder_apply_rows(out_bits, 36, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -119,5 +156,6 @@ r_device const auriol_hg04641a = {
         .gap_limit   = 2500,
         .reset_limit = 5000,
         .decode_fn   = &auriol_hg04641a_decode,
+        .encode_fn   = &auriol_hg04641a_encode,
         .fields      = output_fields,
 };
