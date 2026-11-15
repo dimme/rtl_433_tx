@@ -35,6 +35,9 @@ Data layout:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int ts_ft002_decoder(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -103,6 +106,53 @@ static int ts_ft002_decoder(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of ts_ft002_decoder(). 72-bit LSB-first frame: build the
+    reflected (logical) bytes, reflect back to air order, then the 9th byte is
+    the XOR of the first eight. */
+static int ts_ft002_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    // Build the 9 logical (reflected) bytes directly from the decoded fields.
+    // The captured row may be 70/71/72 bits (leading-bit truncation) and the
+    // decoder only inspects row 0, so emit clean full 72-bit frames.
+    uint8_t b[9] = {0};
+    b[0] = 0xfa; // sync (reflects to the 0x5f air byte)
+    b[2] = 0x11; // fixed message type
+
+    int v, depth = 0, flags = 0, transmit = 180, temp = (0 + 400);
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[1] = (uint8_t)v;
+    encoder_field_int(cap, "depth_cm", &depth);
+    encoder_field_int(cap, "flags", &flags);
+    encoder_field_int(cap, "transmit_s", &transmit);
+    if (encoder_field_dbl(cap, "temperature_C", &t))
+        temp = ((int)lround(t * 10.0) + 400) & 0xfff;
+
+    b[3] = (uint8_t)((depth >> 4) & 0xff);
+    b[4] = (uint8_t)(((flags & 0x0f) << 4) | (depth & 0x0f));
+    int tnib = transmit == 5 ? 0x07 : transmit == 30 ? 0x08 : 0x00;
+    b[5] = (uint8_t)((tnib << 4) | (temp & 0x0f));
+    b[6] = (uint8_t)((temp >> 4) & 0xff);
+    // b[7] (rain) is unused; left zero
+
+    // reflect bytes 0-7 to air order, then byte 8 is the XOR of the first eight
+    uint8_t air[9];
+    for (int i = 0; i < 8; ++i)
+        air[i] = reverse8(b[i]);
+    air[8] = 0;
+    for (int i = 0; i < 8; ++i)
+        air[8] ^= air[i];
+
+    unsigned reps = 0;
+    for (unsigned i = 0; i < cap->bits.num_rows; ++i)
+        if (cap->bits.bits_per_row[i] >= 70 && cap->bits.bits_per_row[i] <= 72)
+            ++reps;
+    if (reps < 4)
+        reps = 4;
+    encoder_emit_frames(out_bits, 0, air, 72, reps, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -123,5 +173,6 @@ r_device const ts_ft002 = {
         .gap_limit   = 1200,
         .reset_limit = 2000,
         .decode_fn   = &ts_ft002_decoder,
+        .encode_fn   = &ts_ft002_encode,
         .fields      = output_fields,
 };
