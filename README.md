@@ -247,6 +247,12 @@ Devices without an encoder fall back to raw-bit replay.
 | 357 | Auriol HG04641A temperature station (`Auriol-HG04641A`) | Disabled by default for receive |
 | 284 | Baldr E0666TH Thermo-Hygrometer (`Baldr-E0666TH`) | |
 
+### Remotes and switches
+
+| Protocol | Device | Notes |
+|:--------:|--------|-------|
+| 332 | TR-502MSV remote for RC-710DX sockets (`TR-502MSV`) | |
+
 ### TPMS
 
 | Protocol | Device | Notes |
