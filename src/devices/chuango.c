@@ -32,6 +32,8 @@ Note: simple 24 bit fixed ID protocol (x1527 style) and should be handled by the
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
 
 static int chuango_callback(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -90,6 +92,46 @@ static int chuango_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of chuango_callback() (x1527). 25-bit frame, bytes 0-2
+    inverted on air, 25th bit fixed 1. The cmd string is derived from cmd_id. */
+static int chuango_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    static char const *const cmd_map[16] = {
+            "Test", "Disarm", "Alarm", "Tamper", "Home Mode", "On",
+            "Home Mode Zone", "Normal Zone", "Arm", "?", "Single Delay Zone",
+            "24H Zone", "Closing", "Low Battery", "?", "?"};
+
+    uint8_t air[4];
+    if (encoder_template_rows(cap, 25, air, out_bits) < 0)
+        return -1;
+
+    uint8_t b0 = (uint8_t)~air[0];
+    uint8_t b1 = (uint8_t)~air[1];
+    uint8_t b2 = (uint8_t)~air[2];
+
+    int id   = (b0 << 12) | (b1 << 4) | (b2 >> 4);
+    int cmd  = b2 & 0x0f;
+    int v;
+    if (encoder_field_int(cap, "id", &v))
+        id = v & 0xfffff;
+    if (encoder_field_int(cap, "cmd_id", &v))
+        cmd = v & 0x0f;
+
+    b0 = (uint8_t)((id >> 12) & 0xff);
+    b1 = (uint8_t)((id >> 4) & 0xff);
+    b2 = (uint8_t)(((id & 0x0f) << 4) | (cmd & 0x0f));
+
+    air[0] = (uint8_t)~b0;
+    air[1] = (uint8_t)~b1;
+    air[2] = (uint8_t)~b2;
+    air[3] = 0x80; // 25th bit always 1
+
+    capture_set_field(cap, "cmd", cmd_map[cmd]);
+
+    encoder_emit_frames(out_bits, 0, air, 25, 6, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -107,6 +149,7 @@ r_device const chuango = {
         .sync_width  = 0,    // No sync bit used
         .tolerance   = 160,
         .decode_fn   = &chuango_callback,
+        .encode_fn   = &chuango_encode,
         .disabled    = 1, // fixed code with no checksum, see issue #3611
         .fields      = output_fields,
 };

@@ -262,6 +262,7 @@ Devices without an encoder fall back to raw-bit replay.
 
 | Protocol | Device | Notes |
 |:--------:|--------|-------|
+| 29 | Chuango Security (HS1527) (`Chuango-Security`) | Alarm sensors/remotes |
 | 30 | Generic Remote SC226x / EV1527 (`Generic-Remote`) | |
 | 332 | TR-502MSV remote for RC-710DX sockets (`TR-502MSV`) | |
 | 392 | Feron LED light remote (`Feron-Remote`) | Disabled by default for receive |
