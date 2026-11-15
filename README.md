@@ -221,6 +221,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 25 | Globaltronics GT-WT-02 (`GT-WT02`) | |
 | 47 | Conrad S3318P, FreeTec NC-5849-913, ORIA WA50 (`Conrad-S3318P`) | |
 | 53 | Springfield Temperature and Soil Moisture (`Springfield-Soil`) | |
+| 54 | Oregon Scientific SL109H (`Oregon-SL109H`) | |
 | 55 | Acurite 606TX / Technoline TX960 | |
 | 56 | TFA pool temperature sensor (`TFA-Pool`) | |
 | 72 | RF-tech, INFRA 217S34 (`RF-tech`) | Disabled by default for receive |
@@ -228,12 +229,15 @@ Devices without an encoder fall back to raw-bit replay.
 | 85 | Solight TE44/TE66, EMOS E0107T, NX-6876-917 (`Solight-TE44`) | |
 | 91 | inFactory, nor-tec, FreeTec NC-3982-913 (`inFactory-TH`) | |
 | 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
+| 114 | Maverick ET-73 BBQ thermometer (`Maverick-ET73`) | |
 | 129 | Eurochron temperature/humidity sensor (`Eurochron-TH`) | Disabled by default for receive |
 | 138 | Globaltronics GT-WT-03 (`GT-WT03`) | |
 | 146 | Auriol AFW2A1 (`Auriol-AFW2A1`) | |
 | 162 | ThermoPro TX2 (`Thermopro-TX2`) | Disabled by default for receive |
 | 183 | Auriol AHFL 433B2 (`Auriol-AHFL`) | |
 | 245 | ThermoPro TX-2C / TX-2B (`Thermopro-TX2C`) | Disabled by default for receive |
+| 339 | Florabest FB-TH-1 BBQ thermometer (`Florabest-FBTH1`) | |
+| 341 | Esun EN2053 two-channel BBQ thermometer (`Esun-EN2053`) | |
 | 284 | Baldr E0666TH Thermo-Hygrometer (`Baldr-E0666TH`) | |
 
 ### TPMS

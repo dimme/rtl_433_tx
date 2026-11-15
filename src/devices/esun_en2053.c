@@ -10,6 +10,8 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
 
 /**
 Esun EN2053 two-channel BBQ thermometer.
@@ -98,6 +100,33 @@ static int esun_en2053_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of esun_en2053_decode(). 40-bit, fixed 0xC0 preamble. */
+static int esun_en2053_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 40, b, out_bits) < 0)
+        return -1;
+
+    b[0] = 0xc0; // fixed preamble
+    int v;
+    int t1 = 0xfd6, t2 = 0xfd6; // disconnected-probe marker
+    if (encoder_field_int(cap, "temperature_1_F", &v))
+        t1 = v & 0xfff;
+    if (encoder_field_int(cap, "temperature_2_F", &v))
+        t2 = v & 0xfff;
+    b[1] = (uint8_t)((t1 >> 4) & 0xff);
+    b[2] = (uint8_t)(((t1 & 0x0f) << 4) | ((t2 >> 8) & 0x0f));
+    b[3] = (uint8_t)(t2 & 0xff);
+
+    int chk = (b[0] + b[1] + b[2] + b[3]) & 0x07;
+    for (int i = 0; i < 4; ++i)
+        chk |= (1 ^ parity8(b[i])) << (4 + i);
+    b[4] = (uint8_t)chk;
+
+    encoder_apply_rows(out_bits, 40, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "temperature_1_F",
@@ -114,5 +143,6 @@ r_device const esun_en2053 = {
         .gap_limit   = 3000,
         .reset_limit = 7500,
         .decode_fn   = &esun_en2053_decode,
+        .encode_fn   = &esun_en2053_encode,
         .fields      = output_fields,
 };
