@@ -47,6 +47,9 @@ device, see fineoffset.c.
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int wg_pb12v1_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -83,6 +86,33 @@ static int wg_pb12v1_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of wg_pb12v1_decode(). 48-bit PWM, CRC8 over bytes 1-4. */
+static int wg_pb12v1_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[6];
+    if (encoder_template_rows(cap, 48, b, out_bits) < 0)
+        return -1;
+
+    b[0] = 0xff; // preamble
+    int v;
+    double t;
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = ((int)lround(t * 10.0) + 400) & 0xfff;
+        b[1]     = (uint8_t)(0x30 | ((temp >> 8) & 0x0f)); // fixed message type 0x3
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+    else {
+        b[1] = (uint8_t)(0x30 | (b[1] & 0x0f));
+    }
+    if (encoder_field_int(cap, "id", &v))
+        b[3] = (uint8_t)((b[3] & 0xe0) | (v & 0x1f));
+    b[4] = 0xff; // humidity fixed
+    b[5] = crc8(&b[1], 4, 0x31, 0);
+
+    encoder_apply_rows(out_bits, 48, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -98,5 +128,6 @@ r_device const wg_pb12v1 = {
         .long_width  = 1476, // Maximum pulse period (long pulse + fixed gap)
         .reset_limit = 2500, // We just want 1 package
         .decode_fn   = &wg_pb12v1_decode,
+        .encode_fn   = &wg_pb12v1_encode,
         .fields      = output_fields,
 };
