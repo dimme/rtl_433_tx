@@ -42,6 +42,9 @@ Layout appears to be:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int maverick_et73_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -90,6 +93,33 @@ static int maverick_et73_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of maverick_et73_decode(). 48-bit; bytes 4-5 (unverified)
+    are kept from the captured template. */
+static int maverick_et73_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[6];
+    if (encoder_template_rows(cap, 48, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_dbl(cap, "temperature_1_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1]     = (uint8_t)((temp >> 4) & 0xff);
+        b[2]     = (uint8_t)((b[2] & 0x0f) | ((temp & 0x0f) << 4));
+    }
+    if (encoder_field_dbl(cap, "temperature_2_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[2]     = (uint8_t)((b[2] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[3]     = (uint8_t)(temp & 0xff);
+    }
+
+    encoder_apply_rows(out_bits, 48, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -106,5 +136,6 @@ r_device const maverick_et73 = {
         .gap_limit   = 2200,
         .reset_limit = 4400, // 4050 us nominal packet gap
         .decode_fn   = &maverick_et73_decode,
+        .encode_fn   = &maverick_et73_encode,
         .fields      = output_fields,
 };
