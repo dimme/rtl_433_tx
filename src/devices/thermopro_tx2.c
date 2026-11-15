@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 ThermoPro TX2 sensor protocol.
@@ -93,6 +96,46 @@ static int thermopro_tx2_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of thermopro_tx2_decode(). Prologue layout with the
+    battery-low flag inverted. */
+static int thermopro_tx2_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 36, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "subtype", &v))
+        b[0] = (uint8_t)((b[0] & 0x0f) | ((v & 0x0f) << 4));
+    if (encoder_field_int(cap, "id", &v)) {
+        b[0] = (uint8_t)((b[0] & 0xf0) | ((v >> 4) & 0x0f));
+        b[1] = (uint8_t)((b[1] & 0x0f) | ((v & 0x0f) << 4));
+    }
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x08) | (v ? 0 : 0x08)); // flag 1 = low
+    if (encoder_field_int(cap, "button", &v))
+        b[1] = (uint8_t)((b[1] & ~0x04) | (v ? 0x04 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x03) | ((v - 1) & 0x03));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[2]     = (uint8_t)((temp >> 4) & 0xff);
+        b[3]     = (uint8_t)((b[3] & 0x0f) | ((temp & 0x0f) << 4));
+    }
+    if (encoder_field_int(cap, "humidity", &v)) {
+        b[3] = (uint8_t)((b[3] & 0xf0) | ((v >> 4) & 0x0f));
+        b[4] = (uint8_t)((v & 0x0f) << 4);
+    }
+    else {
+        b[3] = (uint8_t)((b[3] & 0xf0) | 0x0c); // 0xCC = no humidity sensor
+        b[4] = 0xc0;
+    }
+
+    encoder_apply_rows(out_bits, 36, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "subtype",
@@ -113,6 +156,7 @@ r_device const thermopro_tx2 = {
         .gap_limit   = 7000,
         .reset_limit = 10000,
         .decode_fn   = &thermopro_tx2_decode,
+        .encode_fn   = &thermopro_tx2_encode,
         .disabled    = 1,
         .priority    = 10, // Alecto collision, if Alecto checksum is correct it's not Prologue/ThermoPro-TX2
         .fields      = output_fields,
