@@ -221,6 +221,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 3 | Prologue, FreeTec NC-7104, NC-7159-675 (`Prologue-TH`) | |
 | 19 | Nexus, FreeTec NC-7345, TFA 30.3209 (`Nexus-TH` / `Nexus-T`) | |
 | 25 | Globaltronics GT-WT-02 (`GT-WT02`) | |
+| 32 | Fine Offset WH1080/WH3080 weather station (`Fineoffset-WHx080`) | OOK, weather message (not datetime/UV) |
 | 39 | WG-PB12V1 temperature sensor (`WG-PB12V1`) | |
 | 47 | Conrad S3318P, FreeTec NC-5849-913, ORIA WA50 (`Conrad-S3318P`) | |
 | 52 | Bresser Thermo-/Hygro-Sensor 3CH (`Bresser-3CH`) | |

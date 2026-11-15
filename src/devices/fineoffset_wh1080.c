@@ -110,6 +110,10 @@ so you can see -sometimes- some little difference between module's output and LC
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
+#include <stdio.h>
 
 static int const wind_dir_degr[]= {0, 23, 45, 68, 90, 113, 135, 158, 180, 203, 225, 248, 270, 293, 315, 338};
 
@@ -317,6 +321,85 @@ static int fineoffset_wh1080_callback_ook(r_device *decoder, bitbuffer_t *bitbuf
     return fineoffset_wh1080_callback(decoder, bitbuffer, TYPE_OOK);
 }
 
+/** Encoder: inverse of the OOK WH1080/3080 weather message (subtype 0). Patches
+    the 11-byte frame in place (preamble byte 0xFF, format nibble 0x0A) and
+    recomputes the CRC-8. Only the EPB (byte-aligned) weather packet is encoded;
+    the datetime/UV/light messages and the 7-bit-preamble variant fall back to
+    raw replay. */
+static int fineoffset_wh1080_ook_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    int v;
+    if (encoder_field_int(cap, "subtype", &v) && v != 0)
+        return -1; // only the weather message
+
+    *out_bits = cap->bits;
+    int prow = -1;
+    for (unsigned r = 0; r < out_bits->num_rows; ++r)
+        if (out_bits->bits_per_row[r] >= 88 && out_bits->bb[r][0] == 0xff) {
+            prow = (int)r;
+            break;
+        }
+    if (prow < 0)
+        return -1;
+
+    uint8_t br[11];
+    for (int i = 0; i < 11; ++i)
+        br[i] = out_bits->bb[prow][i];
+
+    double t;
+    int id = (br[1] << 4 & 0xf0) | (br[2] >> 4);
+    if (encoder_field_int(cap, "id", &v))
+        id = v;
+    int temp_raw = ((br[2] & 0x03) << 8) | br[3];
+    if (encoder_field_dbl(cap, "temperature_C", &t))
+        temp_raw = ((int)lround(t * 10.0) + 400) & 0x3ff;
+
+    br[1] = (uint8_t)(0xa0 | ((id >> 4) & 0x0f)); // format nibble 0x0A + id high
+    br[2] = (uint8_t)(((id & 0x0f) << 4) | ((temp_raw >> 8) & 0x03));
+    br[3] = (uint8_t)(temp_raw & 0xff);
+    if (encoder_field_int(cap, "humidity", &v))
+        br[4] = (uint8_t)v;
+    if (encoder_field_dbl(cap, "wind_avg_km_h", &t))
+        br[5] = (uint8_t)lround(t / (0.34 * 3.6));
+    if (encoder_field_dbl(cap, "wind_max_km_h", &t))
+        br[6] = (uint8_t)lround(t / (0.34 * 3.6));
+    if (encoder_field_dbl(cap, "rain_mm", &t)) {
+        int rr = (int)lround(t / 0.3) & 0xfff;
+        br[7]  = (uint8_t)((br[7] & 0xf0) | ((rr >> 8) & 0x0f));
+        br[8]  = (uint8_t)(rr & 0xff);
+    }
+    int bat = (br[9] >> 4) == 1;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        bat = !v;
+    int dir = br[9] & 0x0f;
+    if (encoder_field_int(cap, "wind_dir_deg", &v))
+        dir = ((int)lround(v / 22.5)) & 0x0f;
+    br[9] = (uint8_t)((bat ? 0x10 : 0) | (dir & 0x0f));
+
+    // store the values actually encoded (quantized) so verify matches the decode
+    encoder_set_dbl(cap, "temperature_C", (((br[2] & 0x03) << 8 | br[3]) - 400) * 0.1);
+    encoder_set_dbl(cap, "wind_avg_km_h", br[5] * 0.34 * 3.6);
+    encoder_set_dbl(cap, "wind_max_km_h", br[6] * 0.34 * 3.6);
+    encoder_set_dbl(cap, "rain_mm", (((br[7] & 0x0f) << 8 | br[8]) * 0.3));
+    {
+        static int const wdd[] = {0, 23, 45, 68, 90, 113, 135, 158, 180, 203, 225, 248, 270, 293, 315, 338};
+        char db[8];
+        snprintf(db, sizeof(db), "%d", wdd[dir]);
+        capture_set_field(cap, "wind_dir_deg", db);
+    }
+
+    for (int cand = 0; cand < 256; ++cand) { // CRC-8 (poly 0x31, init 0xff)
+        br[10] = (uint8_t)cand;
+        if (crc8(br, 11, 0x31, 0xff) == 0)
+            break;
+    }
+
+    for (int i = 0; i < 11; ++i)
+        out_bits->bb[prow][i] = br[i];
+
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 /**
 Fine Offset WH1080/WH3080 Weather Station.
 @sa fineoffset_wh1080_callback()
@@ -356,6 +439,7 @@ r_device const fineoffset_wh1080 = {
         .long_width  = 1524, // Maximum pulse period (long pulse + fixed gap)
         .reset_limit = 2800, // We just want 1 package
         .decode_fn   = &fineoffset_wh1080_callback_ook,
+        .encode_fn   = &fineoffset_wh1080_ook_encode,
         .fields      = output_fields,
 };
 
