@@ -67,6 +67,9 @@ Battery voltages:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static uint8_t chk_rollbyte(uint8_t const message[], unsigned bytes, uint16_t gen)
 {
@@ -159,6 +162,53 @@ static int gt_wt_03_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of gt_wt_03_decode(). The decoder inverts the bit train,
+    so the on-air frame is the bitwise complement of the logical bytes. */
+static int gt_wt_03_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t raw[6];
+    if (encoder_template_rows(cap, 41, raw, out_bits) < 0)
+        return -1;
+
+    uint8_t b[5];
+    for (int i = 0; i < 5; ++i)
+        b[i] = (uint8_t)~raw[i]; // logical bytes = inverted on-air bits
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "humidity", &v)) {
+        int hum_raw = v == 0 ? 10 : v == 100 ? 110 : v;
+        b[1]        = (uint8_t)hum_raw;
+    }
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[2] = (uint8_t)((b[2] & ~0x80) | (v ? 0 : 0x80)); // B: 1=low
+    if (encoder_field_int(cap, "button", &v))
+        b[2] = (uint8_t)((b[2] & ~0x40) | (v ? 0x40 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[2] = (uint8_t)((b[2] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[2]     = (uint8_t)((b[2] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[3]     = (uint8_t)(temp & 0xff);
+    }
+
+    b[4] = (uint8_t)(chk_rollbyte(b, 4, 0x3100) ^ 0x2d);
+
+    for (int i = 0; i < 5; ++i)
+        raw[i] = (uint8_t)~b[i]; // back to on-air (inverted); raw[5] trailing bit kept
+
+    unsigned reps = 0;
+    for (unsigned i = 0; i < out_bits->num_rows; ++i)
+        if (out_bits->bits_per_row[i] == 41)
+            ++reps;
+    if (reps < 10)
+        reps = 10;
+    encoder_emit_frames(out_bits, 0, raw, 41, reps, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -180,5 +230,6 @@ r_device const gt_wt_03 = {
         .gap_limit   = 1000,
         .reset_limit = 61000,
         .decode_fn   = &gt_wt_03_decode,
+        .encode_fn   = &gt_wt_03_encode,
         .fields      = output_fields,
 };

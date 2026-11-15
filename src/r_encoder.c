@@ -205,6 +205,24 @@ void encoder_set_bit(uint8_t *row, unsigned idx, int val)
         row[idx / 8] &= (uint8_t)~mask;
 }
 
+void encoder_emit_frames(bitbuffer_t *out, unsigned lead, uint8_t const *frame, unsigned nbits, unsigned reps, int gap)
+{
+    memset(out, 0, sizeof(*out));
+    unsigned nbytes = (nbits + 7) / 8;
+    if (nbytes > BITBUF_COLS)
+        nbytes = BITBUF_COLS;
+    unsigned row = lead; // leading empty rows are already zeroed
+    for (unsigned r = 0; r < reps && row < BITBUF_ROWS; ++r) {
+        out->bits_per_row[row] = (uint16_t)nbits;
+        memcpy(out->bb[row], frame, nbytes);
+        ++row;
+        if (gap && row < BITBUF_ROWS)
+            ++row; // leave an empty gap row
+    }
+    out->num_rows = (uint16_t)row;
+    out->free_row = out->num_rows;
+}
+
 unsigned encoder_manchester_encode(uint8_t *row, unsigned start, uint8_t const *data, unsigned nbits, int invert)
 {
     for (unsigned i = 0; i < nbits; ++i) {

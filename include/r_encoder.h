@@ -68,6 +68,13 @@ void encoder_apply_rows(bitbuffer_t *out, unsigned nbits, uint8_t const *payload
 /// Set a single bit (MSB-first) in a raw bitrow.
 void encoder_set_bit(uint8_t *row, unsigned idx, int val);
 
+/// Build a clean bit train into @p out: @p lead empty rows, then @p reps
+/// payload rows of @p nbits each (copied MSB-first from @p frame), with an
+/// empty gap row after each payload when @p gap is nonzero. Overwrites @p out.
+/// Used by decoders that require a specific leading/interleaved empty-row
+/// structure (sync pulses) that in-place patching cannot reproduce.
+void encoder_emit_frames(bitbuffer_t *out, unsigned lead, uint8_t const *frame, unsigned nbits, unsigned reps, int gap);
+
 /// Encode @p nbits data bits (MSB-first in @p data) as Manchester half-bits into
 /// @p row starting at bit @p start. @p invert selects the coding convention:
 /// 0 matches bitbuffer_manchester_decode() (emits 1-d, d); 1 matches a decoder
