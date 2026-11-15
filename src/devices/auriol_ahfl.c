@@ -29,6 +29,9 @@ Lidl Auriol Auriol AHFL 433B2 IPX4
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int auriol_ahfl_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -96,6 +99,42 @@ static int auriol_ahfl_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of auriol_ahfl_decode(). */
+static int auriol_ahfl_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[6];
+    if (encoder_template_rows(cap, 42, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x80) | (v ? 0x80 : 0));
+    if (encoder_field_int(cap, "button", &v))
+        b[1] = (uint8_t)((b[1] & ~0x40) | (v ? 0x40 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        b[3] = (uint8_t)((v & 0x7f) << 1); // bit0 fixed 0
+    b[4] = (uint8_t)((b[4] & 0x0f) | 0x40); // fixed 0x4 high nibble
+
+    int nibble_sum = (b[0] & 0xF) + (b[0] >> 4) + (b[1] & 0xF) + (b[1] >> 4)
+            + (b[2] & 0xF) + (b[2] >> 4) + (b[3] & 0xF) + (b[3] >> 4) + (b[4] >> 4);
+    int checksum = nibble_sum & 0x3F;
+    b[4] = (uint8_t)((b[4] & 0xf0) | ((checksum >> 2) & 0x0f));
+    b[5] = (uint8_t)((b[5] & 0x3f) | ((checksum & 0x03) << 6));
+
+    encoder_apply_rows(out_bits, 42, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -117,5 +156,6 @@ r_device const auriol_ahfl = {
         .gap_limit   = 4248,
         .reset_limit = 9150,
         .decode_fn   = &auriol_ahfl_decode,
+        .encode_fn   = &auriol_ahfl_encode,
         .fields      = output_fields,
 };
