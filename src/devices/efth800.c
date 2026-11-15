@@ -42,6 +42,9 @@ The sensor sends messages at intervals of about 57-58 seconds.
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int eurochron_efth800_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -122,6 +125,43 @@ static int eurochron_efth800_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of eurochron_efth800_decode(). 48-bit inverted frame with a
+    CRC-8; encodes the thermo-hygrometer packet (not the radio-clock packet). */
+static int eurochron_efth800_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t air[6];
+    if (encoder_template_rows(cap, 48, air, out_bits) < 0)
+        return -1;
+
+    uint8_t b[6];
+    for (int i = 0; i < 6; ++i)
+        b[i] = (uint8_t)~air[i]; // decoder inverts the bit train
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "channel", &v))
+        b[0] = (uint8_t)((b[0] & ~0x70) | (((v - 1) & 0x07) << 4));
+    if (encoder_field_int(cap, "id", &v)) {
+        b[0] = (uint8_t)((b[0] & 0xf0) | ((v >> 8) & 0x0f));
+        b[1] = (uint8_t)(v & 0xff);
+    }
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[2] = (uint8_t)((b[2] & ~0x80) | (v ? 0 : 0x80));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0x3ff; // 10-bit signed
+        b[2]     = (uint8_t)((b[2] & 0xc0) | ((temp >> 4) & 0x3f));
+        b[3]     = (uint8_t)((b[3] & 0x0f) | ((temp & 0x0f) << 4));
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        b[4] = (uint8_t)(((v / 10) << 4) | (v % 10)); // BCD
+    b[5] = crc8(b, 5, 0x31, 0x00);
+
+    for (int i = 0; i < 6; ++i)
+        air[i] = (uint8_t)~b[i];
+    encoder_emit_frames(out_bits, 0, air, 48, 6, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -143,5 +183,6 @@ r_device const eurochron_efth800 = {
         .gap_limit   = 900,
         .reset_limit = 5500,
         .decode_fn   = &eurochron_efth800_decode,
+        .encode_fn   = &eurochron_efth800_encode,
         .fields      = output_fields,
 };

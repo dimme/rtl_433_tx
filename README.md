@@ -242,6 +242,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 137 | Globaltronics Quigg GT-TMBBQ-05 (`GT-TMBBQ05`) | |
 | 138 | Globaltronics GT-WT-03 (`GT-WT03`) | |
 | 146 | Auriol AFW2A1 (`Auriol-AFW2A1`) | |
+| 152 | Eurochron EFTH-800 (`Eurochron-EFTH800`) | Thermo-hygro packet (not the radio-clock packet) |
 | 162 | ThermoPro TX2 (`Thermopro-TX2`) | Disabled by default for receive |
 | 183 | Auriol AHFL 433B2 (`Auriol-AHFL`) | |
 | 230 | Vauno EN8822C (`Vauno-EN8822C`) | |
