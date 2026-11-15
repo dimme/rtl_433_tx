@@ -74,6 +74,11 @@ Format for Winddirection & Windgust:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
 
 // return 1 if the checksum passes and 0 if it fails
 static int alecto_checksum(uint8_t *b)
@@ -208,6 +213,58 @@ static int alectov1_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return DECODE_FAIL_SANITY;
 }
 
+/** Encoder: inverse of alectov1_callback() for the temperature/humidity type.
+    Bytes are bit-reversed; emit identical 36-bit rows so the decoder's row
+    1/2/5/6 cross-checks hold. The checksum nibble is solved with the existing
+    alecto_checksum(). Rain/wind types are left to raw replay. */
+static int alectov1_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    char const *model = capture_get_field(cap, "model");
+    if (!model || strcmp(model, "AlectoV1-Temperature") != 0)
+        return -1; // only the temperature/humidity variant is encoded
+
+    uint8_t air[5];
+    if (encoder_template_rows(cap, 36, air, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        air[0] = reverse8((uint8_t)v);
+    if (encoder_field_int(cap, "channel", &v))
+        air[0] = (uint8_t)((air[0] & ~0x0c) | ((v & 0x03) << 2));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp12  = (int)lround(t * 10.0) & 0xfff;
+        uint8_t l1  = reverse8(air[1]);
+        l1          = (uint8_t)(((temp12 & 0x0f) << 4) | (l1 & 0x0f)); // keep B/M/M/P
+        air[1]      = reverse8(l1);
+        air[2]      = reverse8((uint8_t)((temp12 >> 4) & 0xff));
+    }
+    if (encoder_field_int(cap, "battery_ok", &v)) {
+        uint8_t l1 = reverse8(air[1]);
+        l1         = (uint8_t)((l1 & ~0x01) | (v ? 0 : 0x01)); // bit0 = battery_low
+        air[1]     = reverse8(l1);
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        air[3] = reverse8((uint8_t)(((v / 10) << 4) | (v % 10)));
+
+    for (int cand = 0; cand < 16; ++cand) { // solve the 4-bit checksum
+        air[4] = (uint8_t)(cand << 4);
+        if (alecto_checksum(air))
+            break;
+    }
+
+    // keep the derived id/channel fields consistent with air[0]
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", reverse8(air[0]));
+    capture_set_field(cap, "id", buf);
+    snprintf(buf, sizeof(buf), "%d", (air[0] & 0x0c) >> 2);
+    capture_set_field(cap, "channel", buf);
+
+    encoder_emit_frames(out_bits, 0, air, 36, 8, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -231,5 +288,6 @@ r_device const alectov1 = {
         .gap_limit   = 7000,
         .reset_limit = 10000,
         .decode_fn   = &alectov1_callback,
+        .encode_fn   = &alectov1_encode,
         .fields      = output_fields,
 };
