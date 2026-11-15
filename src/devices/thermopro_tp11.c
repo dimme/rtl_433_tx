@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 ThermoPro TP-11 Thermometer.
@@ -62,6 +65,31 @@ static int thermopro_tp11_sensor_callback(r_device *decoder, bitbuffer_t *bitbuf
     return 1;
 }
 
+/** Encoder: inverse of thermopro_tp11_sensor_callback(). */
+static int thermopro_tp11_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[4];
+    if (encoder_template_rows(cap, 32, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v)) {
+        b[0] = (uint8_t)((v >> 4) & 0xff);
+        b[1] = (uint8_t)((b[1] & 0x0f) | ((v & 0x0f) << 4));
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = ((int)lround(t * 10.0) + 200) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+
+    b[3] = lfsr_digest8_reflect(b, 3, 0x51, 0x04);
+
+    encoder_apply_rows(out_bits, 32, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -78,5 +106,6 @@ r_device const thermopro_tp11 = {
         .gap_limit   = 2000,
         .reset_limit = 4000,
         .decode_fn   = &thermopro_tp11_sensor_callback,
+        .encode_fn   = &thermopro_tp11_encode,
         .fields      = output_fields,
 };
