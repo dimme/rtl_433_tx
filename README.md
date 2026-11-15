@@ -230,8 +230,10 @@ Devices without an encoder fall back to raw-bit replay.
 | 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
 | 129 | Eurochron temperature/humidity sensor (`Eurochron-TH`) | Disabled by default for receive |
 | 138 | Globaltronics GT-WT-03 (`GT-WT03`) | |
+| 146 | Auriol AFW2A1 (`Auriol-AFW2A1`) | |
 | 162 | ThermoPro TX2 (`Thermopro-TX2`) | Disabled by default for receive |
 | 183 | Auriol AHFL 433B2 (`Auriol-AHFL`) | |
+| 245 | ThermoPro TX-2C / TX-2B (`Thermopro-TX2C`) | Disabled by default for receive |
 | 284 | Baldr E0666TH Thermo-Hygrometer (`Baldr-E0666TH`) | |
 
 ### TPMS
