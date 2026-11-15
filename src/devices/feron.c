@@ -10,6 +10,8 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
 
 /**
 Feron LED light remotes.
@@ -81,6 +83,34 @@ static int feron_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of feron_decode(). 32-bit inverted PWM; byte 3 is the
+    bitwise complement of the command byte. */
+static int feron_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t air[4];
+    if (encoder_template_rows(cap, 32, air, out_bits) < 0)
+        return -1;
+
+    uint8_t b[4];
+    for (int i = 0; i < 4; ++i)
+        b[i] = (uint8_t)~air[i]; // decoder inverts the bit train
+
+    int v;
+    if (encoder_field_int(cap, "id", &v)) {
+        b[0] = (uint8_t)((v >> 8) & 0xff);
+        b[1] = (uint8_t)(v & 0xff);
+    }
+    if (encoder_field_int(cap, "command", &v)) {
+        b[2] = (uint8_t)v;
+        b[3] = (uint8_t)~v; // command inverted
+    }
+
+    for (int i = 0; i < 4; ++i)
+        air[i] = (uint8_t)~b[i];
+    encoder_emit_frames(out_bits, 0, air, 32, 6, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -98,6 +128,7 @@ r_device const feron = {
         .reset_limit = 10000,
         .tolerance   = 150,
         .decode_fn   = &feron_decode,
+        .encode_fn   = &feron_encode,
         .disabled    = 1, // weak integrity check
         .fields      = output_fields,
 };
