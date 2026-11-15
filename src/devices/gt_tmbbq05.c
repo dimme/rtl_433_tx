@@ -69,6 +69,9 @@ Frame structure:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int gt_tmbbq05_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -127,6 +130,47 @@ static int gt_tmbbq05_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of gt_tmbbq05_decode(). 33-bit row, 32-bit payload from
+    bit 1, odd parity over 7 nibbles, 4-bit nibble-sum checksum. */
+static int gt_tmbbq05_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t raw[5];
+    if (encoder_template_rows(cap, 33, raw, out_bits) < 0)
+        return -1;
+
+    uint8_t b[4] = {0};
+    for (int i = 0; i < 32; ++i)
+        if ((raw[(i + 1) / 8] >> (7 - (i + 1) % 8)) & 1)
+            b[i / 8] |= (uint8_t)(0x80 >> (i % 8));
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v)) {
+        b[0] = (uint8_t)((v >> 8) & 0xff);
+        b[2] = (uint8_t)(v & 0xff);
+    }
+    if (encoder_field_dbl(cap, "temperature_F", &t)) {
+        int tv = ((int)lround(t) + 90) & 0x3ff;
+        b[1]   = (uint8_t)(tv & 0xff);
+        b[3]   = (uint8_t)((b[3] & 0x3f) | (((tv >> 8) & 0x03) << 6));
+    }
+
+    // odd parity: P bit (b[3] & 0x10) set so parity over b[0..2] + b[3] high nibble is even
+    b[3] &= (uint8_t)~0x10;
+    uint8_t p[4] = {b[0], b[1], b[2], (uint8_t)(b[3] & 0xf0)};
+    if (parity_bytes(p, 4))
+        b[3] |= 0x10;
+
+    int sum = add_nibbles(b, 3) + (b[3] >> 4);
+    b[3]    = (uint8_t)((b[3] & 0xf0) | (sum & 0x0f));
+
+    for (int i = 0; i < 32; ++i)
+        encoder_set_bit(raw, (unsigned)(i + 1), (b[i / 8] >> (7 - i % 8)) & 1);
+
+    encoder_apply_rows(out_bits, 33, raw);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -143,5 +187,6 @@ r_device const gt_tmbbq05 = {
         .gap_limit   = 4200,
         .reset_limit = 9100,
         .decode_fn   = &gt_tmbbq05_decode,
+        .encode_fn   = &gt_tmbbq05_encode,
         .fields      = output_fields,
 };
