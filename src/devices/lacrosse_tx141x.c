@@ -91,6 +91,10 @@ Addition of TX141W and TX145wsdth:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
+#include <string.h>
 
 // Define the types of devices this file supports (uses expected bitlen)
 #define LACROSSE_TX141B 32
@@ -299,6 +303,115 @@ static int lacrosse_tx141x_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of lacrosse_tx141x_decode(). The bit train is inverted, so
+    the on-air bytes are the complement of the logical bytes. Dispatches on the
+    captured model (TX141THBv2 40-bit with digest; TX141Bv2/Bv3/B without a
+    validated checksum; TX141W 64-bit with CRC-8 and temp/wind types). */
+static int lacrosse_tx141x_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    char const *model = capture_get_field(cap, "model");
+    if (!model)
+        return -1;
+
+    int test = 0;
+    char const *ts = capture_get_field(cap, "test");
+    if (ts && (ts[0] == 'Y' || ts[0] == '1'))
+        test = 1;
+
+    int v;
+    double t;
+
+    if (!strcmp(model, "LaCrosse-TX141W")) {
+        uint8_t air[9];
+        unsigned nbits = 64;
+        if (encoder_template_rows(cap, 64, air, out_bits) < 0) {
+            nbits = 65;
+            if (encoder_template_rows(cap, 65, air, out_bits) < 0)
+                return -1;
+        }
+        uint8_t b[9];
+        for (int i = 0; i < 9; ++i)
+            b[i] = (uint8_t)~air[i];
+        int type = b[3] & 0x0f;
+        if (encoder_field_int(cap, "id", &v)) {
+            b[0] = (uint8_t)(0x08 | ((v >> 16) & 0x07)); // preamble 0x01 + id high
+            b[1] = (uint8_t)((v >> 8) & 0xff);
+            b[2] = (uint8_t)(v & 0xff);
+        }
+        if (encoder_field_int(cap, "battery_ok", &v))
+            b[3] = (uint8_t)((b[3] & ~0x80) | (v ? 0 : 0x80));
+        b[3] = (uint8_t)((b[3] & ~0x40) | (test ? 0x40 : 0));
+        if (encoder_field_int(cap, "channel", &v))
+            b[3] = (uint8_t)((b[3] & ~0x30) | ((v & 0x03) << 4));
+        int raw16 = (b[4] << 4) | (b[5] >> 4);
+        int hum   = ((b[5] & 0x0f) << 8) | b[6];
+        if (type == 1) {
+            if (encoder_field_dbl(cap, "temperature_C", &t))
+                raw16 = ((int)lround(t * 10.0) + 500) & 0xfff;
+            if (encoder_field_int(cap, "humidity", &v))
+                hum = v & 0xfff;
+        }
+        else {
+            if (encoder_field_dbl(cap, "wind_avg_km_h", &t))
+                raw16 = (int)lround(t * 10.0) & 0xfff;
+            if (encoder_field_int(cap, "wind_dir_deg", &v))
+                hum = v & 0xfff;
+        }
+        b[4] = (uint8_t)((raw16 >> 4) & 0xff);
+        b[5] = (uint8_t)(((raw16 & 0x0f) << 4) | ((hum >> 8) & 0x0f));
+        b[6] = (uint8_t)(hum & 0xff);
+        for (int cand = 0; cand < 256; ++cand) { // CRC-8 so crc8(b,8) == 0
+            b[7] = (uint8_t)cand;
+            if (crc8(b, 8, 0x31, 0x00) == 0)
+                break;
+        }
+        for (int i = 0; i < 9; ++i)
+            air[i] = (uint8_t)~b[i];
+        encoder_emit_frames(out_bits, 0, air, nbits, 6, 0);
+        return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+    }
+
+    // non-W variants share a 32/33/37/40-bit layout
+    int is_th      = !strcmp(model, "LaCrosse-TX141THBv2");
+    unsigned nbits = is_th ? 40
+            : !strcmp(model, "LaCrosse-TX141Bv2") ? 37
+            : !strcmp(model, "LaCrosse-TX141Bv3") ? 33
+                                                  : 32;
+    uint8_t air[5];
+    if (encoder_template_rows(cap, nbits, air, out_bits) < 0)
+        return -1;
+    unsigned nbytes = (nbits + 7) / 8;
+    uint8_t b[5] = {0};
+    for (unsigned i = 0; i < nbytes; ++i)
+        b[i] = (uint8_t)~air[i];
+
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "battery_ok", &v)) {
+        // TX141TH: bit7 = battery_low; other variants: bit7 = battery_ok
+        int bit = is_th ? (v ? 0 : 0x80) : (v ? 0x80 : 0);
+        b[1]    = (uint8_t)((b[1] & ~0x80) | bit);
+    }
+    b[1] = (uint8_t)((b[1] & ~0x40) | (test ? 0x40 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | ((v & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = ((int)lround(t * 10.0) + 500) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+    if (is_th) {
+        if (encoder_field_int(cap, "humidity", &v))
+            b[3] = (uint8_t)v;
+        b[4] = lfsr_digest8_reflect(b, 4, 0x31, 0xf4);
+    }
+
+    for (unsigned i = 0; i < nbytes; ++i)
+        air[i] = (uint8_t)~b[i];
+    encoder_emit_frames(out_bits, 0, air, nbits, 6, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -323,5 +436,6 @@ r_device const lacrosse_tx141x = {
         .gap_limit   = 625,  // long gap (with short pulse) is ~417 us, sync gap is ~833 us
         .reset_limit = 1700, // maximum gap is 1250 us (long gap + longer sync gap on last repeat)
         .decode_fn   = &lacrosse_tx141x_decode,
+        .encode_fn   = &lacrosse_tx141x_encode,
         .fields      = output_fields,
 };
