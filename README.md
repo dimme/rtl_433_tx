@@ -220,7 +220,9 @@ Devices without an encoder fall back to raw-bit replay.
 | 19 | Nexus, FreeTec NC-7345, TFA 30.3209 (`Nexus-TH` / `Nexus-T`) | |
 | 25 | Globaltronics GT-WT-02 (`GT-WT02`) | |
 | 47 | Conrad S3318P, FreeTec NC-5849-913, ORIA WA50 (`Conrad-S3318P`) | |
+| 53 | Springfield Temperature and Soil Moisture (`Springfield-Soil`) | |
 | 55 | Acurite 606TX / Technoline TX960 | |
+| 85 | Solight TE44/TE66, EMOS E0107T, NX-6876-917 (`Solight-TE44`) | |
 | 91 | inFactory, nor-tec, FreeTec NC-3982-913 (`inFactory-TH`) | |
 | 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
 | 138 | Globaltronics GT-WT-03 (`GT-WT03`) | |

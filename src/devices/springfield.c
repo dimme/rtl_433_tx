@@ -30,6 +30,9 @@ Actually 37 bits for all but last transmission which is 36 bits.
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int springfield_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -94,6 +97,46 @@ static int springfield_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of springfield_decode(), patches every captured repeat. */
+static int springfield_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 36, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x80) | (v ? 0 : 0x80)); // bit7 set = low
+    if (encoder_field_int(cap, "button", &v))
+        b[1] = (uint8_t)((b[1] & ~0x40) | (v ? 0x40 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "moisture", &v))
+        b[3] = (uint8_t)((b[3] & 0x0f) | (((v / 10) & 0x0f) << 4));
+
+    // 4-bit checksum (nibble 7): xor of all 8 nibbles of b[0..3] folds to 0
+    for (int cand = 0; cand < 16; ++cand) {
+        b[3]    = (uint8_t)((b[3] & 0xf0) | cand);
+        int chk = xor_bytes(b, 4);
+        if ((((chk >> 4) ^ (chk & 0x0f)) & 0x0f) == 0)
+            break;
+    }
+
+    // keep the derived "transmit" string consistent with the button bit
+    capture_set_field(cap, "transmit", (b[1] & 0x40) ? "MANUAL" : "AUTO");
+
+    encoder_apply_rows(out_bits, 36, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -115,6 +158,7 @@ r_device const springfield = {
         .gap_limit   = 5000,
         .reset_limit = 9200,
         .decode_fn   = &springfield_decode,
+        .encode_fn   = &springfield_encode,
         .priority    = 10, // Alecto collision, if Alecto checksum is correct it's not Springfield-Soil
         .fields      = output_fields,
 };
