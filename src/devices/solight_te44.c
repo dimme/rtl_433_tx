@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 Solight TE44 -- Generic wireless thermometer, which might be sold as part of different kits.
@@ -90,6 +93,39 @@ static int solight_te44_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of solight_te44_decode(), patches every captured repeat. */
+static int solight_te44_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 36, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+
+    // 8-bit CRC (poly 0x31, init 0x6c) over nibbles 0-6 + padding, in nibbles 7-8
+    uint8_t tmp[5] = {b[0], b[1], b[2], 0xf0, 0};
+    for (int cand = 0; cand < 256; ++cand) {
+        tmp[4] = (uint8_t)cand;
+        if (crc8(tmp, 5, 0x31, 0x6c) == 0)
+            break;
+    }
+    b[3] = (uint8_t)(0xf0 | ((tmp[4] >> 4) & 0x0f));
+    b[4] = (uint8_t)((tmp[4] & 0x0f) << 4);
+
+    encoder_apply_rows(out_bits, 36, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -108,6 +144,7 @@ r_device const solight_te44 = {
         .gap_limit   = 3000, // packet gap = 3880 us
         .reset_limit = 6000,
         .decode_fn   = &solight_te44_decode,
+        .encode_fn   = &solight_te44_encode,
         // Lower than nexus's priority (10): a lower value runs in an earlier
         // round (see run_ook_demods()/run_fsk_demods() in r_api.c), so a
         // successful Solight-TE44 decode (verified CRC) stops the loop
