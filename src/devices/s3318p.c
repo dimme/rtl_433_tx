@@ -58,6 +58,9 @@ Random Code / Device ID: (Nibble 1)
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int s3318p_callback(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -114,6 +117,70 @@ static int s3318p_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of s3318p_callback(), patches every captured repeat.
+    The 40-bit payload starts at bit 2 of each 42-bit row. */
+static int s3318p_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t raw[6];
+    if (encoder_template_rows(cap, 42, raw, out_bits) < 0)
+        return -1;
+
+    // extract the 40-bit payload from bit offset 2
+    uint8_t b[5] = {0};
+    for (int i = 0; i < 40; ++i) {
+        int src = i + 2;
+        if ((raw[src / 8] >> (7 - src % 8)) & 1)
+            b[i / 8] |= (uint8_t)(0x80 >> (i % 8));
+    }
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_F", &t)) {
+        int temp_raw = ((int)lround(t * 10.0) + 900) & 0xfff;
+        b[1] = (uint8_t)((b[1] & 0xf0) | (temp_raw & 0x0f));
+        b[2] = (uint8_t)((temp_raw & 0xf0) | ((temp_raw >> 8) & 0x0f));
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        b[3] = (uint8_t)(((v & 0x0f) << 4) | ((v >> 4) & 0x0f));
+    if (encoder_field_int(cap, "button", &v))
+        b[4] = (uint8_t)((b[4] & ~0x80) | (v ? 0x80 : 0));
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[4] = (uint8_t)((b[4] & ~0x40) | (v ? 0 : 0x40)); // B: 1=low
+
+    // CRC-4 poly 0x3 init 0x0 over the first 32 bits, XORed with the high nibble of b[4]
+    int crc = crc4(b, 4, 0x3, 0x0) ^ (b[4] >> 4);
+    b[4]    = (uint8_t)((b[4] & 0xf0) | (crc & 0x0f));
+
+    // write the payload back at bit offset 2 of the 42-bit frame
+    for (int i = 0; i < 40; ++i) {
+        int bit = (b[i / 8] >> (7 - i % 8)) & 1;
+        encoder_set_bit(raw, (unsigned)(i + 2), bit);
+    }
+
+    // Emit a clean buffer of just the 42-bit payload rows. The captured bit
+    // train has leading empty rows that the decoder's Esperanza-EWS guard
+    // (rows[0]==0 && rows[1]==0) rejects, so we cannot patch it in place.
+    unsigned reps = 0;
+    for (unsigned i = 0; i < out_bits->num_rows; ++i)
+        if (out_bits->bits_per_row[i] >= 41 && out_bits->bits_per_row[i] <= 44)
+            ++reps;
+    if (reps < 6)
+        reps = 6;
+    bitbuffer_clear(out_bits);
+    for (unsigned r = 0; r < reps; ++r) {
+        if (r > 0)
+            bitbuffer_add_row(out_bits); // first row is created by add_bit
+        for (int i = 0; i < 42; ++i)
+            bitbuffer_add_bit(out_bits, (raw[i / 8] >> (7 - i % 8)) & 1);
+    }
+
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -134,5 +201,6 @@ r_device const s3318p = {
         .gap_limit   = 4400,
         .reset_limit = 9400,
         .decode_fn   = &s3318p_callback,
+        .encode_fn   = &s3318p_encode,
         .fields      = output_fields,
 };
