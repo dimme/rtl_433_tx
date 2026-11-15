@@ -215,7 +215,10 @@ Devices without an encoder fall back to raw-bit replay.
 
 | Protocol | Device | Notes |
 |:--------:|--------|-------|
+| 3 | Prologue, FreeTec NC-7104, NC-7159-675 (`Prologue-TH`) | |
 | 19 | Nexus, FreeTec NC-7345, TFA 30.3209 (`Nexus-TH` / `Nexus-T`) | |
+| 25 | Globaltronics GT-WT-02 (`GT-WT02`) | |
+| 47 | Conrad S3318P, FreeTec NC-5849-913, ORIA WA50 (`Conrad-S3318P`) | |
 | 55 | Acurite 606TX / Technoline TX960 | |
 | 91 | inFactory, nor-tec, FreeTec NC-3982-913 (`inFactory-TH`) | |
 | 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
