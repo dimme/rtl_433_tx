@@ -43,6 +43,9 @@ A Lidl AURIO (from 12/2018) with PCB marking YJ-T12 V02 has two extra bits in fr
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int gt_wt_02_process_row(r_device *decoder, bitbuffer_t *bitbuffer, int row)
 {
@@ -136,6 +139,50 @@ static int gt_wt_02_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return counter;
 }
 
+/** Encoder: inverse of gt_wt_02_process_row(), patches every captured repeat. */
+static int gt_wt_02_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 37, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x80) | (v ? 0 : 0x80)); // B: 1=LOW
+    if (encoder_field_int(cap, "button", &v))
+        b[1] = (uint8_t)((b[1] & ~0x40) | (v ? 0x40 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1] = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2] = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "humidity", &v)) {
+        int hum_raw = v;
+        if (v == 0)
+            hum_raw = 10; // display "LL"
+        else if (v == 100)
+            hum_raw = 110; // display "HH"
+        b[3] = (uint8_t)((b[3] & 0x01) | ((hum_raw & 0x7f) << 1));
+    }
+
+    // checksum: sum of 8 nibbles (last masked 0xe) modulo 64, split across b[3]:b0 and b[4]
+    int sum = (b[0] >> 4) + (b[0] & 0xf)
+            + (b[1] >> 4) + (b[1] & 0xf)
+            + (b[2] >> 4) + (b[2] & 0xf)
+            + (b[3] >> 4) + (b[3] & 0xe);
+    int checksum = sum & 0x3f;
+    b[3] = (uint8_t)((b[3] & 0xfe) | ((checksum >> 5) & 1));
+    b[4] = (uint8_t)((checksum & 0x1f) << 3);
+
+    encoder_apply_rows(out_bits, 37, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -156,5 +203,6 @@ r_device const gt_wt_02 = {
         .gap_limit   = 8000, // 10ms (old) / 9ms (new) sync gap
         .reset_limit = 12000,
         .decode_fn   = &gt_wt_02_decode,
+        .encode_fn   = &gt_wt_02_encode,
         .fields      = output_fields,
 };
