@@ -38,6 +38,9 @@ With fresh batteries and button pressed:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int rftech_callback(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -69,6 +72,32 @@ static int rftech_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of rftech_callback(). */
+static int rftech_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[3];
+    if (encoder_template_rows(cap, 24, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int neg = t < 0;
+        int iv  = (int)lround(fabs(t) * 10.0);
+        b[1]    = (uint8_t)((neg ? 0x80 : 0) | ((iv / 10) & 0x7f));
+        b[2]    = (uint8_t)((b[2] & 0xf0) | ((iv % 10) & 0x0f));
+    }
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[2] = (uint8_t)((b[2] & ~0x80) | (v ? 0x80 : 0));
+    if (encoder_field_int(cap, "button", &v))
+        b[2] = (uint8_t)((b[2] & ~0x60) | (v ? 0x20 : 0));
+
+    encoder_apply_rows(out_bits, 24, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const csv_output_fields[] = {
         "model",
         "id",
@@ -86,6 +115,7 @@ r_device const rftech = {
         .gap_limit   = 5000,
         .reset_limit = 10000,
         .decode_fn   = &rftech_callback,
+        .encode_fn   = &rftech_encode,
         .disabled    = 1,
         .fields      = csv_output_fields,
 };
