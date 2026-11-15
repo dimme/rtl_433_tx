@@ -230,6 +230,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 91 | inFactory, nor-tec, FreeTec NC-3982-913 (`inFactory-TH`) | |
 | 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
 | 114 | Maverick ET-73 BBQ thermometer (`Maverick-ET73`) | |
+| 125 | TS-FT002 ultrasonic tank level + temperature (`TS-FT002`) | |
 | 129 | Eurochron temperature/humidity sensor (`Eurochron-TH`) | Disabled by default for receive |
 | 137 | Globaltronics Quigg GT-TMBBQ-05 (`GT-TMBBQ05`) | |
 | 138 | Globaltronics GT-WT-03 (`GT-WT03`) | |
@@ -237,6 +238,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 162 | ThermoPro TX2 (`Thermopro-TX2`) | Disabled by default for receive |
 | 183 | Auriol AHFL 433B2 (`Auriol-AHFL`) | |
 | 245 | ThermoPro TX-2C / TX-2B (`Thermopro-TX2C`) | Disabled by default for receive |
+| 268 | Bresser ST1005H Thermo-/Hygro-Sensor (`Bresser-ST1005H`) | |
 | 325 | Thermor A6N 132TX (`Thermor-A6N132TX`) | |
 | 339 | Florabest FB-TH-1 BBQ thermometer (`Florabest-FBTH1`) | |
 | 341 | Esun EN2053 two-channel BBQ thermometer (`Esun-EN2053`) | |

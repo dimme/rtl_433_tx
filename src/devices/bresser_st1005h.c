@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 Bresser ST1005H sensor protocol.
@@ -146,6 +149,51 @@ static int bresser_st1005h_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of bresser_st1005h_decode(). 38-bit frame: leading null
+    bit, 32-bit payload from bit 1, 6-bit nibble-sum checksum at bits 32-37
+    (so bit 32 is shared with the payload and overlaid last). */
+static int bresser_st1005h_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t raw[5];
+    if (encoder_template_rows(cap, 38, raw, out_bits) < 0)
+        return -1;
+
+    uint8_t msg[4] = {0};
+    for (int i = 0; i < 32; ++i)
+        if ((raw[(i + 1) / 8] >> (7 - (i + 1) % 8)) & 1)
+            msg[i / 8] |= (uint8_t)(0x80 >> (i % 8));
+    msg[3] &= 0xfe; // bit 32 belongs to the checksum
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        msg[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        msg[1] = (uint8_t)((msg[1] & ~0x80) | (v ? 0 : 0x80));
+    if (encoder_field_int(cap, "button", &v))
+        msg[1] = (uint8_t)((msg[1] & ~0x40) | (v ? 0x40 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        msg[1] = (uint8_t)((msg[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        msg[1]   = (uint8_t)((msg[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        msg[2]   = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        msg[3] = (uint8_t)((v & 0x7f) << 1);
+
+    int chk = add_nibbles(msg, 4) & 0x3f;
+
+    encoder_set_bit(raw, 0, 0); // leading null bit
+    for (int i = 0; i < 32; ++i)
+        encoder_set_bit(raw, (unsigned)(i + 1), (msg[i / 8] >> (7 - i % 8)) & 1);
+    for (int i = 0; i < 6; ++i)
+        encoder_set_bit(raw, (unsigned)(32 + i), (chk >> (5 - i)) & 1);
+
+    encoder_apply_rows(out_bits, 38, raw);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -166,5 +214,6 @@ r_device const bresser_st1005h = {
         .gap_limit   = 4500,
         .reset_limit = 10000,
         .decode_fn   = &bresser_st1005h_decode,
+        .encode_fn   = &bresser_st1005h_encode,
         .fields      = output_fields,
 };
