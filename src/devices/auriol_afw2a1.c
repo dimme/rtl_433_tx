@@ -50,6 +50,9 @@ e.g.:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int auriol_afw2a1_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -105,6 +108,37 @@ static int auriol_afw2a1_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of auriol_afw2a1_decode(). No checksum; nibble 6 fixed 0xA. */
+static int auriol_afw2a1_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 36, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x80) | (v ? 0x80 : 0));
+    if (encoder_field_int(cap, "button", &v))
+        b[1] = (uint8_t)((b[1] & ~0x40) | (v ? 0x40 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "humidity", &v)) {
+        b[3] = (uint8_t)(0xa0 | ((v >> 4) & 0x0f)); // fixed 0xA high nibble
+        b[4] = (uint8_t)((v & 0x0f) << 4);
+    }
+
+    encoder_apply_rows(out_bits, 36, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -126,5 +160,6 @@ r_device const auriol_afw2a1 = {
         .gap_limit   = 2012,
         .reset_limit = 3954,
         .decode_fn   = &auriol_afw2a1_decode,
+        .encode_fn   = &auriol_afw2a1_encode,
         .fields      = output_fields,
 };
