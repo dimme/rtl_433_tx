@@ -18,6 +18,9 @@ Tested devices:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <stdint.h>
 
 static int generic_remote_callback(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -71,6 +74,47 @@ static int generic_remote_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of generic_remote_callback() (PT2262/EV1527). 25-bit frame:
+    bytes 0-2 inverted on air, the 25th bit fixed 1; the tristate string is
+    derived from id+cmd. */
+static int generic_remote_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t air[4];
+    if (encoder_template_rows(cap, 25, air, out_bits) < 0)
+        return -1;
+
+    uint8_t b0 = (uint8_t)~air[0];
+    uint8_t b1 = (uint8_t)~air[1];
+    uint8_t b2 = (uint8_t)~air[2];
+
+    int v;
+    if (encoder_field_int(cap, "id", &v)) {
+        b0 = (uint8_t)((v >> 8) & 0xff);
+        b1 = (uint8_t)(v & 0xff);
+    }
+    if (encoder_field_int(cap, "cmd", &v))
+        b2 = (uint8_t)v;
+
+    air[0] = (uint8_t)~b0;
+    air[1] = (uint8_t)~b1;
+    air[2] = (uint8_t)~b2;
+    air[3] = 0x80; // 25th bit is always 1 (not inverted)
+
+    // keep the derived tristate string consistent
+    uint32_t full = ((uint32_t)b0 << 16) | ((uint32_t)b1 << 8) | b2;
+    char tri[13];
+    int k = 0;
+    for (int i = 22; i >= 0; i -= 2) {
+        int s    = (full >> i) & 0x03;
+        tri[k++] = s == 0 ? '0' : s == 1 ? 'Z' : s == 2 ? 'X' : '1';
+    }
+    tri[12] = '\0';
+    capture_set_field(cap, "tristate", tri);
+
+    encoder_emit_frames(out_bits, 0, air, 25, 6, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -88,5 +132,6 @@ r_device const generic_remote = {
         .sync_width  = 0,   // No sync bit used
         .tolerance   = 200,
         .decode_fn   = &generic_remote_callback,
+        .encode_fn   = &generic_remote_encode,
         .fields      = output_fields,
 };
