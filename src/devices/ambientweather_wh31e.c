@@ -204,6 +204,10 @@ Some payloads:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
+#include <string.h>
 
 static int ambientweather_whx_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -440,6 +444,69 @@ static int ambientweather_whx_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return events;
 }
 
+/** Encoder: inverse of the WH31E/WH31B (0x30/0x37) path of
+    ambientweather_whx_decode(). FSK PCM frame with a 0xAA..2DD4 sync; the 7-byte
+    payload after the sync is patched in place and its CRC-8 and SUM recomputed.
+    Only the thermo-hygrometer subtype is encoded. */
+static int ambientweather_whx_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    *out_bits = cap->bits;
+    uint8_t const preamble[] = {0xaa, 0x2d, 0xd4};
+
+    int prow        = -1;
+    unsigned start  = 0;
+    for (unsigned r = 0; r < out_bits->num_rows; ++r) {
+        unsigned sp = bitbuffer_search(out_bits, r, 0, preamble, 24);
+        if (sp < out_bits->bits_per_row[r]) {
+            prow  = (int)r;
+            start = sp + 24;
+            break;
+        }
+    }
+    if (prow < 0)
+        return -1;
+
+    uint8_t b[18];
+    bitbuffer_extract_bytes(out_bits, (unsigned)prow, start, b, 18 * 8);
+    if (b[0] != 0x30 && b[0] != 0x37)
+        return -1; // only WH31E / WH31B thermo-hygrometer
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[1] = (uint8_t)v;
+    if (encoder_field_int(cap, "channel", &v))
+        b[2] = (uint8_t)((b[2] & ~0x70) | (((v - 1) & 0x07) << 4));
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[2] = (uint8_t)((b[2] & ~0x04) | (v ? 0 : 0x04));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = ((int)lround(t * 10.0) + 400) & 0x3ff;
+        b[2]     = (uint8_t)((b[2] & ~0x03) | ((temp >> 8) & 0x03));
+        b[3]     = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        b[4] = (uint8_t)v;
+    b[5] = crc8(b, 5, 0x31, 0x00);      // CRC over bytes 0-4
+    b[6] = (uint8_t)add_bytes(b, 6);    // SUM of bytes 0-5
+
+    // keep the informational "data" field (bytes 6-10) consistent
+    char extra[11];
+    snprintf(extra, sizeof(extra), "%02x%02x%02x%02x%02x", b[6], b[7], b[8], b[9], b[10]);
+    capture_set_field(cap, "data", extra);
+
+    // write the 56-bit payload back into every row that carries the sync
+    for (unsigned r = 0; r < out_bits->num_rows; ++r) {
+        unsigned sp = bitbuffer_search(out_bits, r, 0, preamble, 24);
+        if (sp >= out_bits->bits_per_row[r])
+            continue;
+        unsigned off = sp + 24;
+        for (int i = 0; i < 56; ++i)
+            encoder_set_bit(out_bits->bb[r], off + (unsigned)i, (b[i / 8] >> (7 - i % 8)) & 1);
+    }
+
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -469,5 +536,6 @@ r_device const ambientweather_wh31e = {
         .reset_limit = 1500,
         .gap_limit   = 1800,
         .decode_fn   = &ambientweather_whx_decode,
+        .encode_fn   = &ambientweather_whx_encode,
         .fields      = output_fields,
 };

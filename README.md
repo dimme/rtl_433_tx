@@ -231,6 +231,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 85 | Solight TE44/TE66, EMOS E0107T, NX-6876-917 (`Solight-TE44`) | |
 | 91 | inFactory, nor-tec, FreeTec NC-3982-913 (`inFactory-TH`) | |
 | 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
+| 113 | Ambient Weather WH31E / EcoWitt WH31B (`AmbientWeather-WH31E`) | FSK; thermo-hygro subtype only |
 | 114 | Maverick ET-73 BBQ thermometer (`Maverick-ET73`) | |
 | 125 | TS-FT002 ultrasonic tank level + temperature (`TS-FT002`) | |
 | 129 | Eurochron temperature/humidity sensor (`Eurochron-TH`) | Disabled by default for receive |
