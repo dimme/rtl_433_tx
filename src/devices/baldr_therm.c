@@ -11,6 +11,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 Baldr E0666TH Thermo-Hygrometer, which is the remote sensor for the BaldrTherm
@@ -99,6 +102,43 @@ static int baldr_therm_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of baldr_therm_decode(). 64-bit, no checksum. */
+static int baldr_therm_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[8];
+    if (encoder_template_rows(cap, 64, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v)) {
+        b[0] = (uint8_t)((v >> 8) & 0xff);
+        b[7] = (uint8_t)(v & 0xff);
+    }
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x80) | (v ? 0x80 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    b[1] &= (uint8_t)~0x40; // fixed 0
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "humidity", &v)) {
+        b[3] = (uint8_t)(0xf0 | ((v >> 4) & 0x0f));
+        b[4] = (uint8_t)((v & 0x0f) << 4);
+    }
+    b[5] = 0x00; // fixed
+    if (encoder_field_int(cap, "startup", &v))
+        b[6] = (uint8_t)(v ? 0x08 : 0x00);
+    else
+        b[6] &= 0x08;
+
+    encoder_apply_rows(out_bits, 64, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -118,5 +158,6 @@ r_device const baldr_therm = {
         .gap_limit   = 3000,
         .reset_limit = 5000,
         .decode_fn   = &baldr_therm_decode,
+        .encode_fn   = &baldr_therm_encode,
         .fields      = output_fields,
 };

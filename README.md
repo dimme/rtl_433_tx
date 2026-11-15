@@ -222,6 +222,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 47 | Conrad S3318P, FreeTec NC-5849-913, ORIA WA50 (`Conrad-S3318P`) | |
 | 53 | Springfield Temperature and Soil Moisture (`Springfield-Soil`) | |
 | 55 | Acurite 606TX / Technoline TX960 | |
+| 56 | TFA pool temperature sensor (`TFA-Pool`) | |
 | 72 | RF-tech, INFRA 217S34 (`RF-tech`) | Disabled by default for receive |
 | 84 | Thermopro TP11 thermometer (`Thermopro-TP11`) | |
 | 85 | Solight TE44/TE66, EMOS E0107T, NX-6876-917 (`Solight-TE44`) | |
@@ -229,6 +230,9 @@ Devices without an encoder fall back to raw-bit replay.
 | 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
 | 129 | Eurochron temperature/humidity sensor (`Eurochron-TH`) | Disabled by default for receive |
 | 138 | Globaltronics GT-WT-03 (`GT-WT03`) | |
+| 162 | ThermoPro TX2 (`Thermopro-TX2`) | Disabled by default for receive |
+| 183 | Auriol AHFL 433B2 (`Auriol-AHFL`) | |
+| 284 | Baldr E0666TH Thermo-Hygrometer (`Baldr-E0666TH`) | |
 
 ### TPMS
 
