@@ -222,6 +222,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 25 | Globaltronics GT-WT-02 (`GT-WT02`) | |
 | 39 | WG-PB12V1 temperature sensor (`WG-PB12V1`) | |
 | 47 | Conrad S3318P, FreeTec NC-5849-913, ORIA WA50 (`Conrad-S3318P`) | |
+| 52 | Bresser Thermo-/Hygro-Sensor 3CH (`Bresser-3CH`) | |
 | 53 | Springfield Temperature and Soil Moisture (`Springfield-Soil`) | |
 | 54 | Oregon Scientific SL109H (`Oregon-SL109H`) | |
 | 55 | Acurite 606TX / Technoline TX960 | |

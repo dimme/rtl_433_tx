@@ -37,6 +37,9 @@ The data is grouped in 5 bytes / 10 nibbles
 - chk is the sum of the four data bytes
 */
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int bresser_3ch_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -97,6 +100,41 @@ static int bresser_3ch_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of bresser_3ch_decode(). 40-bit, bytes are inverted on air;
+    the last byte is the sum of the first four. */
+static int bresser_3ch_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t air[5];
+    if (encoder_template_rows(cap, 40, air, out_bits) < 0)
+        return -1;
+
+    uint8_t b[5];
+    for (int i = 0; i < 5; ++i)
+        b[i] = (uint8_t)~air[i]; // decoder inverts each byte
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x80) | (v ? 0 : 0x80));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | ((v & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_F", &t)) {
+        int temp = ((int)lround(t * 10.0) + 900) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        b[3] = (uint8_t)v;
+    b[4] = (uint8_t)((b[0] + b[1] + b[2] + b[3]) & 0xff);
+
+    for (int i = 0; i < 5; ++i)
+        air[i] = (uint8_t)~b[i];
+    encoder_emit_frames(out_bits, 0, air, 40, 6, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -117,6 +155,7 @@ r_device const bresser_3ch = {
         .gap_limit   = 625,  // long gap (with short pulse) is ~500 us, sync gap is ~750 us
         .reset_limit = 1250, // maximum gap is 1000 us (long gap + longer sync gap on last repeat)
         .decode_fn   = &bresser_3ch_decode,
+        .encode_fn   = &bresser_3ch_encode,
         .fields      = output_fields,
 };
 
