@@ -13,6 +13,9 @@
  */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 #define TYPE_OOK 1
 #define TYPE_FSK 2
 
@@ -225,9 +228,9 @@ static int fineoffset_wh1050_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     uint8_t preamble_byte = bitbuffer->bb[0][0]; // for OOK
     uint8_t const preamble_fsk[] = {0xAA, 0x2D, 0xD4}; // part of preamble and sync word for FSK
     if (bits == 79 && preamble_byte == 0xfe) {
-        fineoffset_wh1050_decode(decoder, bitbuffer, 7, TYPE_OOK);
+        events += fineoffset_wh1050_decode(decoder, bitbuffer, 7, TYPE_OOK);
     } else if (bits == 80 && preamble_byte == 0xff) {
-        fineoffset_wh1050_decode(decoder, bitbuffer, 8, TYPE_OOK);
+        events += fineoffset_wh1050_decode(decoder, bitbuffer, 8, TYPE_OOK);
     } else if (bits > 112 && bits < 760) {
         while ((bitpos = bitbuffer_search(bitbuffer, 0, bitpos, preamble_fsk, sizeof(preamble_fsk) * 8)) + 72 <=
                 bitbuffer->bits_per_row[0]) {
@@ -238,6 +241,75 @@ static int fineoffset_wh1050_callback(r_device *decoder, bitbuffer_t *bitbuffer)
         return DECODE_ABORT_LENGTH;
     }
     return events;
+}
+
+/** Encoder: inverse of the OOK WH1050 weather message (msg_type 5). The row is
+    an 0xFF preamble byte followed by the 72-bit payload; patches it in place
+    and recomputes the CRC-8. Time messages and the FSK variant fall back to
+    raw replay. */
+static int fineoffset_wh1050_ook_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    int v;
+    if (encoder_field_int(cap, "msg_type", &v) && v != 5)
+        return -1; // only the weather message
+
+    *out_bits = cap->bits;
+    int prow     = -1;
+    unsigned off = 8;
+    for (unsigned r = 0; r < out_bits->num_rows; ++r) {
+        if (out_bits->bits_per_row[r] >= 80 && out_bits->bb[r][0] == 0xff) {
+            prow = (int)r;
+            off  = 8; // 8-bit preamble
+            break;
+        }
+        if (out_bits->bits_per_row[r] == 79 && out_bits->bb[r][0] == 0xfe) {
+            prow = (int)r;
+            off  = 7; // 7-bit preamble
+            break;
+        }
+    }
+    if (prow < 0)
+        return -1;
+
+    uint8_t br[9];
+    bitbuffer_extract_bytes(out_bits, (unsigned)prow, off, br, 9 * 8);
+
+    double t;
+    int id = (br[0] << 4 & 0xf0) | (br[1] >> 4);
+    if (encoder_field_int(cap, "id", &v))
+        id = v;
+    int temp_raw = ((br[1] & 0x03) << 8) | br[2];
+    if (encoder_field_dbl(cap, "temperature_C", &t))
+        temp_raw = ((int)lround(t * 10.0) + 400) & 0x3ff;
+    int bat = (br[1] & 0x04) != 0;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        bat = !v;
+
+    br[0] = (uint8_t)(0x50 | ((id >> 4) & 0x0f)); // msg_type 5 + id high
+    br[1] = (uint8_t)(((id & 0x0f) << 4) | (bat ? 0x04 : 0) | ((temp_raw >> 8) & 0x03));
+    br[2] = (uint8_t)(temp_raw & 0xff);
+    if (encoder_field_int(cap, "humidity", &v))
+        br[3] = (uint8_t)v;
+    if (encoder_field_dbl(cap, "wind_avg_km_h", &t))
+        br[4] = (uint8_t)lround(t / (0.34 * 3.6));
+    if (encoder_field_dbl(cap, "wind_max_km_h", &t))
+        br[5] = (uint8_t)lround(t / (0.34 * 3.6));
+    if (encoder_field_dbl(cap, "rain_mm", &t)) {
+        int rr = (int)lround(t / 0.3) & 0xffff;
+        br[6]  = (uint8_t)((rr >> 8) & 0xff);
+        br[7]  = (uint8_t)(rr & 0xff);
+    }
+    br[8] = crc8(br, 8, 0x31, 0x00);
+
+    encoder_set_dbl(cap, "temperature_C", (((br[1] & 0x03) << 8 | br[2]) - 400) * 0.1);
+    encoder_set_dbl(cap, "wind_avg_km_h", br[4] * 0.34 * 3.6);
+    encoder_set_dbl(cap, "wind_max_km_h", br[5] * 0.34 * 3.6);
+    encoder_set_dbl(cap, "rain_mm", ((br[6] << 8 | br[7]) * 0.3));
+
+    for (int i = 0; i < 72; ++i)
+        encoder_set_bit(out_bits->bb[prow], off + (unsigned)i, (br[i / 8] >> (7 - i % 8)) & 1);
+
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
 }
 
 static char const *const output_fields[] = {
@@ -262,6 +334,7 @@ r_device const fineoffset_wh1050 = {
         .long_width  = 1524,
         .reset_limit = 10520,
         .decode_fn   = &fineoffset_wh1050_callback,
+        .encode_fn   = &fineoffset_wh1050_ook_encode,
         .fields      = output_fields,
 };
 

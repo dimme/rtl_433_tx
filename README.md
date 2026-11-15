@@ -229,6 +229,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 54 | Oregon Scientific SL109H (`Oregon-SL109H`) | |
 | 55 | Acurite 606TX / Technoline TX960 | |
 | 56 | TFA pool temperature sensor (`TFA-Pool`) | |
+| 69 | Fine Offset WH1050, TFA 30.3151 (`Fineoffset-WH1050`) | OOK, weather message (not time) |
 | 72 | RF-tech, INFRA 217S34 (`RF-tech`) | Disabled by default for receive |
 | 73 | LaCrosse TX141TH-Bv2 / TX141-Bv2 / Bv3 / TX141B / TX141W (`LaCrosse-TX141*`) | All variants incl. TX141W wind |
 | 75 | LaCrosse TX35DTH-IT, TFA 30.3155 (`LaCrosse-TX35DTHIT`) | FSK |
