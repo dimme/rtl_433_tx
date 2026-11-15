@@ -216,6 +216,7 @@ Devices without an encoder fall back to raw-bit replay.
 | Protocol | Device | Notes |
 |:--------:|--------|-------|
 | 2 | Rubicson, TFA 30.3197, InFactory PT-310 (`Rubicson-Temperature`) | |
+| 20 | Ambient Weather F007TH, TFA 30.3208.02, SwitchDoc F016TH (`Ambientweather-F007TH`) | Manchester |
 | 3 | Prologue, FreeTec NC-7104, NC-7159-675 (`Prologue-TH`) | |
 | 19 | Nexus, FreeTec NC-7345, TFA 30.3209 (`Nexus-TH` / `Nexus-T`) | |
 | 25 | Globaltronics GT-WT-02 (`GT-WT02`) | |

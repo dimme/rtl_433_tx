@@ -40,6 +40,9 @@ xxxxMMMM IIIIIIII BCCCTTTT TTTTTTTT HHHHHHHH MMMMMMMM
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int ambient_weather_decode(r_device *decoder, bitbuffer_t *bitbuffer, unsigned row, unsigned bitpos)
 {
@@ -152,6 +155,59 @@ static int ambient_weather_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return ret;
 }
 
+/** Encoder: inverse of ambient_weather_decode(). OOK Manchester; the decoded
+    bit train carries a 0x0145 preamble, then a 6-byte payload (patched in place)
+    whose last byte is an LFSR digest-8. Handles the normal preamble only. */
+static int ambient_weather_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    *out_bits = cap->bits;
+    uint8_t const preamble[2] = {0x01, 0x45};
+
+    int prow       = -1;
+    unsigned start = 0;
+    for (unsigned r = 0; r < out_bits->num_rows; ++r) {
+        unsigned sp = bitbuffer_search(out_bits, r, 0, preamble, 12);
+        if (sp + 8 + 48 <= out_bits->bits_per_row[r]) {
+            prow  = (int)r;
+            start = sp + 8;
+            break;
+        }
+    }
+    if (prow < 0)
+        return -1;
+
+    uint8_t b[6];
+    bitbuffer_extract_bytes(out_bits, (unsigned)prow, start, b, 48);
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[1] = (uint8_t)v;
+    if (encoder_field_int(cap, "channel", &v))
+        b[2] = (uint8_t)((b[2] & ~0x70) | (((v - 1) & 0x07) << 4));
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[2] = (uint8_t)((b[2] & ~0x80) | (v ? 0 : 0x80));
+    if (encoder_field_dbl(cap, "temperature_F", &t)) {
+        int raw = ((int)lround(t * 10.0) + 400) & 0xfff;
+        b[2]    = (uint8_t)((b[2] & ~0x0f) | ((raw >> 8) & 0x0f));
+        b[3]    = (uint8_t)(raw & 0xff);
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        b[4] = (uint8_t)v;
+    b[5] = (uint8_t)(lfsr_digest8(b, 5, 0x98, 0x3e) ^ 0x64);
+
+    for (unsigned r = 0; r < out_bits->num_rows; ++r) {
+        unsigned sp = bitbuffer_search(out_bits, r, 0, preamble, 12);
+        if (sp + 8 + 48 > out_bits->bits_per_row[r])
+            continue;
+        unsigned off = sp + 8;
+        for (int i = 0; i < 48; ++i)
+            encoder_set_bit(out_bits->bb[r], off + (unsigned)i, (b[i / 8] >> (7 - i % 8)) & 1);
+    }
+
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -170,5 +226,6 @@ r_device const ambient_weather = {
         .long_width  = 0, // not used
         .reset_limit = 2400,
         .decode_fn   = &ambient_weather_callback,
+        .encode_fn   = &ambient_weather_encode,
         .fields      = output_fields,
 };
