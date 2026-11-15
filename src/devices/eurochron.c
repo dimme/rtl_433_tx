@@ -33,6 +33,9 @@ Observed update intervals:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int eurochron_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -83,6 +86,38 @@ static int eurochron_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of eurochron_decode(). No checksum; byte 1 low bits are 0. */
+static int eurochron_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 36, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    {
+        int bat = 0, btn = 0;
+        encoder_field_int(cap, "button", &btn);
+        if (encoder_field_int(cap, "battery_ok", &v))
+            bat = !v;
+        else
+            bat = (b[1] >> 7) & 1;
+        b[1] = (uint8_t)((bat ? 0x80 : 0) | (btn ? 0x10 : 0)); // B00P0000
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        b[2] = (uint8_t)v;
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[3]     = (uint8_t)((temp >> 4) & 0xff);
+        b[4]     = (uint8_t)((temp & 0x0f) << 4);
+    }
+
+    encoder_apply_rows(out_bits, 36, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -101,6 +136,7 @@ r_device const eurochron = {
         .gap_limit   = 2100,
         .reset_limit = 8200,
         .decode_fn   = &eurochron_decode,
+        .encode_fn   = &eurochron_encode,
         .disabled    = 1,
         .fields      = output_fields,
 };
