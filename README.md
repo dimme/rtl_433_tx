@@ -215,6 +215,7 @@ Devices without an encoder fall back to raw-bit replay.
 
 | Protocol | Device | Notes |
 |:--------:|--------|-------|
+| 2 | Rubicson, TFA 30.3197, InFactory PT-310 (`Rubicson-Temperature`) | |
 | 3 | Prologue, FreeTec NC-7104, NC-7159-675 (`Prologue-TH`) | |
 | 19 | Nexus, FreeTec NC-7345, TFA 30.3209 (`Nexus-TH` / `Nexus-T`) | |
 | 25 | Globaltronics GT-WT-02 (`GT-WT02`) | |
@@ -222,6 +223,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 55 | Acurite 606TX / Technoline TX960 | |
 | 91 | inFactory, nor-tec, FreeTec NC-3982-913 (`inFactory-TH`) | |
 | 108 | Hyundai WS SENZOR (`Hyundai-WS`) | |
+| 138 | Globaltronics GT-WT-03 (`GT-WT03`) | |
 
 ### TPMS
 

@@ -9,6 +9,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 Rubicson temperature sensor.
@@ -90,6 +93,42 @@ static int rubicson_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of rubicson_callback(), patches every captured repeat. */
+static int rubicson_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[5];
+    if (encoder_template_rows(cap, 36, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[1] = (uint8_t)((b[1] & ~0x80) | (v ? 0x80 : 0));
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+
+    // 8-bit CRC (poly 0x31, init 0x6c) over nibbles 0-6 + 0-padding, stored in
+    // nibbles 7-8. Solve for the CRC byte that makes crc8(tmp,5) == 0.
+    uint8_t tmp[5] = {b[0], b[1], b[2], (uint8_t)(0xf0), 0};
+    for (int cand = 0; cand < 256; ++cand) {
+        tmp[4] = (uint8_t)cand;
+        if (crc8(tmp, 5, 0x31, 0x6c) == 0)
+            break;
+    }
+    b[3] = (uint8_t)(0xf0 | ((tmp[4] >> 4) & 0x0f));
+    b[4] = (uint8_t)((tmp[4] & 0x0f) << 4);
+
+    encoder_apply_rows(out_bits, 36, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -109,5 +148,6 @@ r_device const rubicson = {
         .gap_limit   = 3000,
         .reset_limit = 4800, // Two initial pulses and a gap of 9120 us is filtered out
         .decode_fn   = &rubicson_callback,
+        .encode_fn   = &rubicson_encode,
         .fields      = output_fields,
 };
