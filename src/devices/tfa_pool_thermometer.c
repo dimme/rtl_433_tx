@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 TFA pool temperature sensor.
@@ -77,6 +80,37 @@ static int tfa_pool_thermometer_decode(r_device *decoder, bitbuffer_t *bitbuffer
     return 1;
 }
 
+/** Encoder: inverse of tfa_pool_thermometer_decode(). */
+static int tfa_pool_thermometer_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[4];
+    if (encoder_template_rows(cap, 28, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v)) {
+        b[0] = (uint8_t)((b[0] & 0xf0) | ((v >> 4) & 0x0f));
+        b[1] = (uint8_t)((b[1] & 0x0f) | ((v & 0x0f) << 4));
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "channel", &v))
+        b[3] = (uint8_t)((b[3] & ~0xc0) | ((v & 0x03) << 6));
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[3] = (uint8_t)((b[3] & ~0x20) | (v ? 0x20 : 0));
+
+    int checksum = ((b[0] & 0x0F) + (b[1] >> 4) + (b[1] & 0x0F)
+            + (b[2] >> 4) + (b[2] & 0x0F) + (b[3] >> 4) - 1) & 0x0F;
+    b[0] = (uint8_t)((b[0] & 0x0f) | (checksum << 4));
+
+    encoder_apply_rows(out_bits, 28, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -95,5 +129,6 @@ r_device const tfa_pool_thermometer = {
         .gap_limit   = 7800,
         .reset_limit = 10000,
         .decode_fn   = &tfa_pool_thermometer_decode,
+        .encode_fn   = &tfa_pool_thermometer_encode,
         .fields      = output_fields,
 };
