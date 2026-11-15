@@ -9,6 +9,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 Thermor A6N 132TX temperature sensor.
@@ -116,6 +119,45 @@ static int thermor_a6n_132tx_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of thermor_a6n_132tx_decode(). 32-bit, ID-dependent
+    checksum high nibble. */
+static int thermor_a6n_132tx_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[4];
+    if (encoder_template_rows(cap, 32, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)((b[0] & 0x0f) | ((v & 0x0f) << 4));
+    if (encoder_field_int(cap, "channel", &v))
+        b[0] = (uint8_t)((b[0] & ~0x0c) | ((v & 0x03) << 2));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xffff;
+        b[1]     = (uint8_t)((temp >> 8) & 0xff);
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+
+    int id       = (b[0] >> 4) & 0x0f;
+    int lo_sum   = (b[0] & 0x0f) + (b[1] & 0x0f) + (b[2] & 0x0f);
+    int overflow = lo_sum >> 4;
+    int hi_sum   = (b[0] >> 4) + (b[1] >> 4) + (b[2] >> 4);
+    int chk_hi;
+    if (id == 4) {
+        chk_hi = (hi_sum + overflow) & 1;
+    }
+    else {
+        int msb  = parity8(b[0] & 0x0f) ^ parity8(b[1] & 0x0f) ^ parity8(b[2]);
+        int low3 = (2 + (hi_sum & 1)) ^ overflow;
+        chk_hi   = (msb << 3) | low3;
+    }
+    b[3] = (uint8_t)((chk_hi << 4) | (lo_sum & 0x0f));
+
+    encoder_apply_rows(out_bits, 32, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -133,5 +175,6 @@ r_device const thermor_a6n_132tx = {
         .gap_limit   = 2000,
         .reset_limit = 4000,
         .decode_fn   = &thermor_a6n_132tx_decode,
+        .encode_fn   = &thermor_a6n_132tx_encode,
         .fields      = output_fields,
 };
