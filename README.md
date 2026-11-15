@@ -246,6 +246,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 152 | Eurochron EFTH-800 (`Eurochron-EFTH800`) | Thermo-hygro packet (not the radio-clock packet) |
 | 162 | ThermoPro TX2 (`Thermopro-TX2`) | Disabled by default for receive |
 | 183 | Auriol AHFL 433B2 (`Auriol-AHFL`) | |
+| 184 | Auriol AFT 77 B2 (`Auriol-AFT77B2`) | Galois-LFSR checksum |
 | 230 | Vauno EN8822C (`Vauno-EN8822C`) | |
 | 245 | ThermoPro TX-2C / TX-2B (`Thermopro-TX2C`) | Disabled by default for receive |
 | 268 | Bresser ST1005H Thermo-/Hygro-Sensor (`Bresser-ST1005H`) | |

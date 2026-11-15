@@ -48,6 +48,9 @@ Bitbuffer example from rtl_433 -a:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 #define GEN 0x83
 #define KEY 0xEC
@@ -137,6 +140,59 @@ static int auriol_aft77_b2_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of auriol_aft77_b2_decode(). 68-bit frame: a 4-bit prefix
+    0xA followed by 16 data nibbles. The decoder's `frame` bytes are nibble
+    pairs offset by one, with a byte sum and a reflected Galois LFSR (lsrc). */
+static int auriol_aft77_b2_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t raw[9];
+    if (encoder_template_rows(cap, 68, raw, out_bits) < 0)
+        return -1;
+
+    // 17 nibbles; n[0] is the fixed prefix 0xA
+    uint8_t n[17];
+    for (int i = 0; i < 9; ++i) {
+        n[2 * i] = raw[i] >> 4;
+        if (2 * i + 1 < 17)
+            n[2 * i + 1] = raw[i] & 0x0f;
+    }
+
+    // frame[k] = nibbles [2k+1, 2k+2]
+    uint8_t frame[8];
+    for (int k = 0; k < 8; ++k)
+        frame[k] = (uint8_t)((n[2 * k + 1] << 4) | n[2 * k + 2]);
+
+    int v;
+    double t;
+    frame[0] = 0x5c; // fixed 0x5, 0xC
+    if (encoder_field_int(cap, "id", &v))
+        frame[1] = (uint8_t)v;
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int sign = t < 0;
+        int mag  = (int)lround(fabs(t) * 10.0);
+        if (mag > 999)
+            mag = 999;
+        int sign_nib = (frame[3] >> 4 & 0x07) | (sign ? 0x08 : 0);
+        frame[3]     = (uint8_t)((sign_nib << 4) | (mag / 100));         // sign + hundreds
+        frame[4]     = (uint8_t)((((mag / 10) % 10) << 4) | (mag % 10)); // tens, ones
+    }
+    frame[5] = 0x00;
+    frame[6] = (uint8_t)add_bytes(frame, 6);
+    frame[7] = lsrc(frame, 6);
+
+    // repack: n[0]=0xA, n[1..16] from the 8 frame bytes
+    n[0] = 0x0a;
+    for (int k = 0; k < 8; ++k) {
+        n[2 * k + 1] = frame[k] >> 4;
+        n[2 * k + 2] = frame[k] & 0x0f;
+    }
+    for (int i = 0; i < 9; ++i)
+        raw[i] = (uint8_t)((n[2 * i] << 4) | (2 * i + 1 < 17 ? n[2 * i + 1] : 0));
+
+    encoder_emit_frames(out_bits, 0, raw, 68, 6, 0);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -153,5 +209,6 @@ r_device const auriol_aft77b2 = {
         .gap_limit   = 1104,
         .reset_limit = 2275,
         .decode_fn   = &auriol_aft77_b2_decode,
+        .encode_fn   = &auriol_aft77_b2_encode,
         .fields      = output_fields,
 };
