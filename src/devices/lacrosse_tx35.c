@@ -76,6 +76,9 @@ There's no way to distinguish between the TX35 and TX25U models
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 #define LACROSSE_TX29_NOHUMIDSENSOR  0x6a // Sensor do not support humidity
 #define LACROSSE_TX25_PROBE_FLAG     0x7d // Humidity flag to indicate probe temperature channel
@@ -171,6 +174,67 @@ static int lacrossetx35_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     return lacrosse_it(decoder, bitbuffer, LACROSSE_TX35_MODEL);
 }
 
+/** Encoder: inverse of lacrosse_it() (shared by TX29 and TX35). FSK PCM with a
+    0xA2DD49 preamble/sync/model; the 5-byte payload after it is patched in
+    place (BCD temperature, +40 offset) and the CRC-8 recomputed. */
+static int lacrosse_it_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    *out_bits = cap->bits;
+    uint8_t const preamble[] = {0xa2, 0xdd, 0x49};
+
+    int prow       = -1;
+    unsigned start = 0;
+    for (unsigned r = 0; r < out_bits->num_rows; ++r) {
+        unsigned sp = bitbuffer_search(out_bits, r, 0, preamble, 24);
+        if (sp < out_bits->bits_per_row[r]) {
+            prow  = (int)r;
+            start = sp + 20; // payload begins 20 bits into the 24-bit match
+            break;
+        }
+    }
+    if (prow < 0)
+        return -1;
+
+    uint8_t b[5];
+    bitbuffer_extract_bytes(out_bits, (unsigned)prow, start, b, 40);
+    int probe = ((b[3] & 0x7f) == LACROSSE_TX25_PROBE_FLAG);
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v)) {
+        int raw = probe ? (v - 0x40) : v;
+        b[0]    = (uint8_t)(0x90 | ((raw >> 2) & 0x0f)); // model nibble 0x9 + id high
+        b[1]    = (uint8_t)((b[1] & 0x3f) | ((raw & 0x03) << 6));
+    }
+    if (encoder_field_int(cap, "newbattery", &v))
+        b[1] = (uint8_t)((b[1] & ~0x20) | (v ? 0x20 : 0));
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[3] = (uint8_t)((b[3] & ~0x80) | (v ? 0 : 0x80));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int val = (int)lround((t + 40.0) * 10.0); // total tenths with +40 C offset
+        if (val < 0)
+            val = 0;
+        if (val > 999)
+            val = 999;
+        b[1] = (uint8_t)((b[1] & 0xf0) | ((val / 100) % 10));        // tens (BCD)
+        b[2] = (uint8_t)((((val / 10) % 10) << 4) | (val % 10));     // ones, tenths
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        b[3] = (uint8_t)((b[3] & 0x80) | (v & 0x7f));
+    b[4] = crc8(b, 4, 0x31, 0x00);
+
+    for (unsigned r = 0; r < out_bits->num_rows; ++r) {
+        unsigned sp = bitbuffer_search(out_bits, r, 0, preamble, 24);
+        if (sp >= out_bits->bits_per_row[r])
+            continue;
+        unsigned off = sp + 20;
+        for (int i = 0; i < 40; ++i)
+            encoder_set_bit(out_bits->bb[r], off + (unsigned)i, (b[i / 8] >> (7 - i % 8)) & 1);
+    }
+
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -190,6 +254,7 @@ r_device const lacrosse_tx29 = {
         .long_width  = 55, // 58 us for TX34-IT
         .reset_limit = 4000,
         .decode_fn   = &lacrossetx29_callback,
+        .encode_fn   = &lacrosse_it_encode,
         .fields      = output_fields,
 };
 
@@ -201,5 +266,6 @@ r_device const lacrosse_tx35 = {
         .long_width  = 105,
         .reset_limit = 4000,
         .decode_fn   = &lacrossetx35_callback,
+        .encode_fn   = &lacrosse_it_encode,
         .fields      = output_fields,
 };

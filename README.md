@@ -227,6 +227,8 @@ Devices without an encoder fall back to raw-bit replay.
 | 56 | TFA pool temperature sensor (`TFA-Pool`) | |
 | 72 | RF-tech, INFRA 217S34 (`RF-tech`) | Disabled by default for receive |
 | 73 | LaCrosse TX141TH-Bv2 / TX141-Bv2 / Bv3 / TX141B / TX141W (`LaCrosse-TX141*`) | All variants incl. TX141W wind |
+| 75 | LaCrosse TX35DTH-IT, TFA 30.3155 (`LaCrosse-TX35DTHIT`) | FSK |
+| 76 | LaCrosse TX29-IT, TFA 30.3159 (`LaCrosse-TX29IT`) | FSK |
 | 84 | Thermopro TP11 thermometer (`Thermopro-TP11`) | |
 | 85 | Solight TE44/TE66, EMOS E0107T, NX-6876-917 (`Solight-TE44`) | |
 | 91 | inFactory, nor-tec, FreeTec NC-3982-913 (`inFactory-TH`) | |
