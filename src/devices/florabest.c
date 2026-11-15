@@ -10,6 +10,9 @@
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 /**
 Florabest FB-TH-1 BBQ Thermometer (Lidl), also sold as other Florabest
@@ -93,6 +96,37 @@ static int florabest_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of florabest_decode(). 30-bit, odd parity over all bits. */
+static int florabest_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[4];
+    if (encoder_template_rows(cap, 30, b, out_bits) < 0)
+        return -1;
+
+    int id;
+    double t;
+    if (encoder_field_int(cap, "id", &id)) {
+        b[0] = (uint8_t)((id >> 8) & 0xff);
+        b[1] = (uint8_t)(id & 0xff);
+    }
+    if (encoder_field_dbl(cap, "temperature_F", &t)) {
+        int raw = (int)lround((t + 90.0) * 10.0) & 0x1fff;
+        b[2]    = (uint8_t)((raw >> 5) & 0xff);
+        b[3]    = (uint8_t)((b[3] & 0x07) | ((raw & 0x1f) << 3));
+    }
+
+    // bit 29 (b[3] & 0x04) is parity: total XOR over all 30 bits must be 1
+    b[3] &= (uint8_t)~0x04;
+    int par = 0;
+    for (int i = 0; i < 30; ++i)
+        par ^= bitrow_get_bit(b, i);
+    if (par != 1)
+        b[3] |= 0x04;
+
+    encoder_apply_rows(out_bits, 30, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -109,5 +143,6 @@ r_device const florabest = {
         .gap_limit   = 6000,
         .reset_limit = 11000,
         .decode_fn   = &florabest_decode,
+        .encode_fn   = &florabest_encode,
         .fields      = output_fields,
 };
