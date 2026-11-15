@@ -46,6 +46,9 @@ Sample Data:
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
 
 static int vauno_en8822c_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
@@ -89,6 +92,37 @@ static int vauno_en8822c_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     return 1;
 }
 
+/** Encoder: inverse of vauno_en8822c_decode(). 42-bit, 6-bit nibble-sum. */
+static int vauno_en8822c_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t b[6];
+    if (encoder_template_rows(cap, 42, b, out_bits) < 0)
+        return -1;
+
+    int v;
+    double t;
+    if (encoder_field_int(cap, "id", &v))
+        b[0] = (uint8_t)v;
+    if (encoder_field_int(cap, "channel", &v))
+        b[1] = (uint8_t)((b[1] & ~0x30) | (((v - 1) & 0x03) << 4));
+    if (encoder_field_dbl(cap, "temperature_C", &t)) {
+        int temp = (int)lround(t * 10.0) & 0xfff;
+        b[1]     = (uint8_t)((b[1] & 0xf0) | ((temp >> 8) & 0x0f));
+        b[2]     = (uint8_t)(temp & 0xff);
+    }
+    if (encoder_field_int(cap, "humidity", &v))
+        b[3] = (uint8_t)((b[3] & 0x01) | ((v & 0x7f) << 1));
+    if (encoder_field_int(cap, "battery_ok", &v))
+        b[4] = (uint8_t)((b[4] & ~0x10) | (v ? 0 : 0x10));
+
+    int sum = (add_nibbles(b, 4) + (b[4] >> 4)) & 0x3f;
+    b[4] = (uint8_t)((b[4] & 0xf0) | ((sum >> 2) & 0x0f));
+    b[5] = (uint8_t)((b[5] & 0x3f) | ((sum & 0x03) << 6));
+
+    encoder_apply_rows(out_bits, 42, b);
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "id",
@@ -109,5 +143,6 @@ r_device const vauno_en8822c = {
         .gap_limit   = 5000,
         .reset_limit = 9500,
         .decode_fn   = &vauno_en8822c_decode,
+        .encode_fn   = &vauno_en8822c_encode,
         .fields      = output_fields,
 };

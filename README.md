@@ -219,6 +219,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 3 | Prologue, FreeTec NC-7104, NC-7159-675 (`Prologue-TH`) | |
 | 19 | Nexus, FreeTec NC-7345, TFA 30.3209 (`Nexus-TH` / `Nexus-T`) | |
 | 25 | Globaltronics GT-WT-02 (`GT-WT02`) | |
+| 39 | WG-PB12V1 temperature sensor (`WG-PB12V1`) | |
 | 47 | Conrad S3318P, FreeTec NC-5849-913, ORIA WA50 (`Conrad-S3318P`) | |
 | 53 | Springfield Temperature and Soil Moisture (`Springfield-Soil`) | |
 | 54 | Oregon Scientific SL109H (`Oregon-SL109H`) | |
@@ -237,6 +238,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 146 | Auriol AFW2A1 (`Auriol-AFW2A1`) | |
 | 162 | ThermoPro TX2 (`Thermopro-TX2`) | Disabled by default for receive |
 | 183 | Auriol AHFL 433B2 (`Auriol-AHFL`) | |
+| 230 | Vauno EN8822C (`Vauno-EN8822C`) | |
 | 245 | ThermoPro TX-2C / TX-2B (`Thermopro-TX2C`) | Disabled by default for receive |
 | 268 | Bresser ST1005H Thermo-/Hygro-Sensor (`Bresser-ST1005H`) | |
 | 325 | Thermor A6N 132TX (`Thermor-A6N132TX`) | |
