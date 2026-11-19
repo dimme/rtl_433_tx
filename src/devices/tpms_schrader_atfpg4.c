@@ -55,6 +55,12 @@ There is also a 12 byte message type 0x27 with the same CRC, meaning unknown, no
 */
 
 #include "decoder.h"
+#include "capture.h"
+#include "r_encoder.h"
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define ATFPG4_MSG_LEN 11
 
@@ -137,6 +143,109 @@ static int tpms_schrader_atfpg4_callback(r_device *decoder, bitbuffer_t *bitbuff
     return events > 0 ? events : ret;
 }
 
+/** Encoder: inverse of tpms_schrader_atfpg4_decode().
+
+    Patches id, pressure, temperature and flags into the 0x24 pressure message,
+    recomputes the CRC-8 and re-encodes the inverted Manchester payload after
+    every sync found in the captured bits (all frames of a transmission). If the
+    capture holds no usable frame, a clean frame (preamble, sync, payload) is
+    built from the decoded fields instead.
+*/
+static int tpms_schrader_atfpg4_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
+{
+    uint8_t const sync[] = {0xaa, 0x59};
+    unsigned const sync_bits = sizeof(sync) * 8;
+    unsigned const mc_bits   = ATFPG4_MSG_LEN * 16;
+
+    bitbuffer_t bits = cap->bits;
+    uint8_t b[ATFPG4_MSG_LEN];
+    int have_template = 0;
+
+    // Locate every frame; the first valid one is the template for unedited bytes
+    struct {
+        unsigned row, pos;
+    } frames[BITBUF_ROWS * 4];
+    unsigned num_frames = 0;
+    for (unsigned row = 0; row < bits.num_rows; ++row) {
+        unsigned pos = 0;
+        while ((pos = bitbuffer_search(&bits, row, pos, sync, sync_bits)) + sync_bits + mc_bits <= bits.bits_per_row[row]) {
+            bitbuffer_t dec = {0};
+            bitbuffer_manchester_decode(&bits, row, pos + sync_bits, &dec, ATFPG4_MSG_LEN * 8);
+            if (dec.bits_per_row[0] >= ATFPG4_MSG_LEN * 8) {
+                bitbuffer_invert(&dec);
+                if (dec.bb[0][0] == 0x24 && num_frames < sizeof(frames) / sizeof(*frames)) {
+                    if (!have_template) {
+                        memcpy(b, dec.bb[0], ATFPG4_MSG_LEN);
+                        have_template = 1;
+                    }
+                    frames[num_frames].row = row;
+                    frames[num_frames].pos = pos + sync_bits;
+                    num_frames++;
+                    pos += sync_bits + mc_bits;
+                    continue;
+                }
+            }
+            pos += 2;
+        }
+    }
+
+    if (!have_template) {
+        // No captured frame: start from defaults seen on a parked truck
+        uint8_t const defaults[ATFPG4_MSG_LEN] = {0x24, 0x5c, 0, 0, 0, 0, 52, 0x00, 0x00, 0xe4, 0};
+        memcpy(b, defaults, sizeof(b));
+        if (!capture_get_field(cap, "id"))
+            return -1;
+    }
+
+    char const *f;
+    int v;
+    double d;
+    if ((f = capture_get_field(cap, "id")) && *f) {
+        uint32_t id = (uint32_t)strtoul(f, NULL, 16);
+        b[1]        = (uint8_t)(id >> 24);
+        b[2]        = (uint8_t)(id >> 16);
+        b[3]        = (uint8_t)(id >> 8);
+        b[4]        = (uint8_t)id;
+    }
+    if (encoder_field_dbl(cap, "pressure_bar", &d)) {
+        long p = lround(d / 0.055);
+        b[5]   = (uint8_t)(p < 0 ? 0 : p > 0xff ? 0xff : p);
+        encoder_set_dbl(cap, "pressure_bar", b[5] * 0.055);
+    }
+    if (encoder_field_dbl(cap, "temperature_C", &d)) {
+        long t = lround(d) + 52;
+        b[6]   = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
+        encoder_set_dbl(cap, "temperature_C", b[6] - 52.0);
+    }
+    if (encoder_field_int(cap, "flags1", &v))
+        b[7] = (uint8_t)v;
+    if (encoder_field_int(cap, "flags2", &v))
+        b[8] = (uint8_t)v;
+    if (encoder_field_int(cap, "flags3", &v))
+        b[9] = (uint8_t)v;
+    b[10] = crc8(b, ATFPG4_MSG_LEN - 1, 0x2f, 0xaa);
+
+    if (have_template) {
+        for (unsigned i = 0; i < num_frames; ++i)
+            encoder_manchester_encode(bits.bb[frames[i].row], frames[i].pos, b, ATFPG4_MSG_LEN * 8, 1);
+    }
+    else {
+        // 64 preamble chips (0xaa..), the sync, the payload and a trailing chip pair
+        memset(&bits, 0, sizeof(bits));
+        uint8_t *row = bits.bb[0];
+        memset(row, 0xaa, 8);
+        memcpy(row + 8, sync, sizeof(sync));
+        unsigned end = encoder_manchester_encode(row, 64 + sync_bits, b, ATFPG4_MSG_LEN * 8, 1);
+        encoder_set_bit(row, end++, 1);
+        encoder_set_bit(row, end++, 0);
+        bits.bits_per_row[0] = (uint16_t)end;
+        bits.num_rows        = 1;
+    }
+
+    *out_bits = bits;
+    return encoder_verify(decoder, out_bits, cap) ? 1 : -1;
+}
+
 static char const *const output_fields[] = {
         "model",
         "type",
@@ -157,5 +266,6 @@ r_device const tpms_schrader_atfpg4 = {
         .long_width  = 52,
         .reset_limit = 800,
         .decode_fn   = &tpms_schrader_atfpg4_callback,
+        .encode_fn   = &tpms_schrader_atfpg4_encode,
         .fields      = output_fields,
 };

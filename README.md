@@ -307,6 +307,7 @@ Devices without an encoder fall back to raw-bit replay.
 | 378 | Sefis M3 / Careud / Sykik SRTP300 | |
 | 380 | Jeep | Disabled by default for receive |
 | 381 | Honda (TRW PPA-GF33) | |
+| 399 | Schrader ATFPG4 (heavy-duty truck) | Pressure message (0x24) only |
 
 ## Command-line reference
 
