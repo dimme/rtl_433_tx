@@ -11,11 +11,24 @@ Schrader ATFPG4 heavy-duty truck TPMS.
 
 Valve mounted Schrader/Sensata sensor for heavy trucks, FCC ID MRXATFPG4 / 2ATIMATFPG4.
 
+FCC test report (Amber Helm Development, ATFPG4-WR2009TX, 2020-05-31):
+https://fccid.io/MRXATFPG4/Test-Report/Test-Report-4766180
+
 Signal:
-- 433.92 MHz FSK, about +/-42 kHz deviation
-- Manchester coded, 52 us half-bit width (9600 bit/s)
-- A transmission is 3 identical frames of about 11.4 ms, 100 to 185 ms apart
-- Parked sensors transmit about every 122 s
+- 433.92 MHz FSK, about +/-42 kHz deviation (FCC: 20 dB bandwidth 143 kHz, 99% bandwidth 148 kHz)
+- Manchester coded, 52 us half-bit width (about 9600 bit/s)
+- A transmission is 3 identical frames of about 11.2 ms (FCC: 11.21 ms max), more than 100 ms
+  apart (100 to 185 ms seen, FCC: 129 ms and 167 ms, 0.296 s for the whole transmission)
+- Powered by a 3 V lithium cell
+
+Modes of operation (FCC report, section 3.1.2):
+- ROLL MODE: periodic transmissions when the vehicle drives, worst case 3 frames every 20 s.
+  Parked sensors were seen transmitting about every 122 s
+- LEARN MODE: on LF interrogation with a special LF tool (at a dealership) the sensor answers with
+  a single transmission of "a number of frames used to configure the device with the vehicle"
+- Emergency (delta pressure): pressure and temperature are transmitted for the duration of the
+  condition
+- The modes of operation are described in the "Test Report" exhibit of the FCC filing
 
 Frame:
 - Preamble of alternating chips, ending in the sync {16} 0xaa59 (raw, before MC)
@@ -26,7 +39,8 @@ Data layout:
      0  1  2  3  4  5  6  7  8  9 10
     MM II II II II PP TT F1 F2 F3 CC
 
-- MM : Message type, 0x24 for the pressure message
+- MM : Message type, 0x24 for the pressure message (the ROLL MODE frame, 11 bytes matches the
+       11.21 ms FCC frame length)
 - II : Sensor ID, 32 bit. The first byte was 0x5c on all 8 sensors seen so far
 - PP : Pressure, 0.055 bar per count, gauge (0x95 = 8.195 bar, display showed 8.2 bar)
 - TT : Temperature, offset 52 C. The offset is not certain, it could be 50
@@ -48,9 +62,18 @@ Example data (after MC, inverted):
     24 5c 3f 7b b1 a3 47 00 ac e4 f9 : 8.965 bar, 19 C
     24 5c 3f 7b b1 9d 3c 49 75 e5 05 : 8.635 bar,  8 C, driving
 
-There is also a 12 byte message type 0x27 with the same CRC, meaning unknown, not decoded here:
+There is also a 12 byte message type 0x27, not decoded here. The CRC is the last byte, the same
+CRC-8 over the previous 11 bytes. Only one frame was seen, from a sensor ID not seen in any 0x24
+message:
 
     27 5c 3f 78 97 00 00 00 2c 27 9e 01
+
+It is most likely a LEARN MODE (LF triggered) frame, unconfirmed:
+- At about 12.0 ms it is longer than the 11.21 ms maximum the FCC measured in ROLL MODE
+- Pressure, temperature and motion are zero, so it is not the emergency message, which carries
+  pressure and temperature
+- Bytes 8 to 10 (2c 27 9e) are unknown, possibly configuration data
+- LEARN MODE sends "a number of frames", so other message types may exist
 
 */
 
