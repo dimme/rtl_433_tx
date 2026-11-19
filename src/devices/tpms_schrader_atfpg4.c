@@ -30,7 +30,7 @@ Data layout:
 - II : Sensor ID, 32 bit. The first byte was 0x5c on all 8 sensors seen so far
 - PP : Pressure, 0.055 bar per count, gauge (0x95 = 8.195 bar, display showed 8.2 bar)
 - TT : Temperature, offset 52 C. The offset is not certain, it could be 50
-- F1 : 0x00 on a parked truck, other values seen when driving, unknown
+- F1 : Motion, 0x00 on a parked truck, larger values when driving (possibly speed)
 - F2 : Sequence number on a parked truck, +1 per transmission. Other use when driving, unknown
 - F3 : Status flags, unknown. 0xe4, 0xe8, 0xe0, 0xd8 seen parked (constant per sensor), 0xe5 driving
 - CC : CRC-8 of the previous 10 bytes, poly 0x2f, init 0xaa
@@ -89,7 +89,7 @@ static int tpms_schrader_atfpg4_decode(r_device *decoder, bitbuffer_t *bitbuffer
 
     double pressure_bar = b[5] * 0.055;
     int temperature_c   = b[6] - 52;
-    int unknown         = b[7];
+    int motion          = b[7];
     int seq_num         = b[8];
     int status          = b[9];
 
@@ -105,7 +105,7 @@ static int tpms_schrader_atfpg4_decode(r_device *decoder, bitbuffer_t *bitbuffer
             "temperature_C",    "Temperature",  DATA_FORMAT, "%.0f C",   DATA_DOUBLE, (double)temperature_c,
             "seq_num",          "Sequence",     DATA_INT,    seq_num,
             "status",           "Status",       DATA_FORMAT, "%02x",     DATA_INT,    status,
-            "unknown",          "Unknown",      DATA_FORMAT, "%02x",     DATA_INT,    unknown,
+            "motion",           "Motion",       DATA_FORMAT, "%02x",     DATA_INT,    motion,
             "mic",              "Integrity",    DATA_STRING, "CRC",
             NULL);
     /* clang-format on */
@@ -145,7 +145,7 @@ static int tpms_schrader_atfpg4_callback(r_device *decoder, bitbuffer_t *bitbuff
 
 /** Encoder: inverse of tpms_schrader_atfpg4_decode().
 
-    Patches id, pressure, temperature, unknown, seq_num and status into the
+    Patches id, pressure, temperature, motion, seq_num and status into the
     0x24 pressure message, recomputes the CRC-8 and re-encodes the inverted
     Manchester payload after every sync found in the captured bits (all frames
     of a transmission). If the capture holds no usable frame, a clean frame
@@ -217,7 +217,7 @@ static int tpms_schrader_atfpg4_encode(r_device const *decoder, struct capture *
         b[6]   = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
         encoder_set_dbl(cap, "temperature_C", b[6] - 52.0);
     }
-    if (encoder_field_int(cap, "unknown", &v))
+    if (encoder_field_int(cap, "motion", &v))
         b[7] = (uint8_t)v;
     if (encoder_field_int(cap, "seq_num", &v))
         b[8] = (uint8_t)v;
@@ -254,7 +254,7 @@ static char const *const output_fields[] = {
         "temperature_C",
         "seq_num",
         "status",
-        "unknown",
+        "motion",
         "mic",
         NULL,
 };
