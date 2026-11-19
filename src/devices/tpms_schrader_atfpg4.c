@@ -89,9 +89,9 @@ static int tpms_schrader_atfpg4_decode(r_device *decoder, bitbuffer_t *bitbuffer
 
     double pressure_bar = b[5] * 0.055;
     int temperature_c   = b[6] - 52;
-    int flags1          = b[7];
-    int flags2          = b[8];
-    int flags3          = b[9];
+    int unknown         = b[7];
+    int seq_num         = b[8];
+    int status          = b[9];
 
     char id_str[9];
     snprintf(id_str, sizeof(id_str), "%02x%02x%02x%02x", b[1], b[2], b[3], b[4]);
@@ -103,9 +103,9 @@ static int tpms_schrader_atfpg4_decode(r_device *decoder, bitbuffer_t *bitbuffer
             "id",               "",             DATA_STRING, id_str,
             "pressure_bar",     "Pressure",     DATA_FORMAT, "%.2f bar", DATA_DOUBLE, pressure_bar,
             "temperature_C",    "Temperature",  DATA_FORMAT, "%.0f C",   DATA_DOUBLE, (double)temperature_c,
-            "flags1",           "Flags1",       DATA_FORMAT, "%02x",     DATA_INT,    flags1,
-            "flags2",           "Flags2",       DATA_FORMAT, "%02x",     DATA_INT,    flags2,
-            "flags3",           "Flags3",       DATA_FORMAT, "%02x",     DATA_INT,    flags3,
+            "seq_num",          "Sequence",     DATA_INT,    seq_num,
+            "status",           "Status",       DATA_FORMAT, "%02x",     DATA_INT,    status,
+            "unknown",          "Unknown",      DATA_FORMAT, "%02x",     DATA_INT,    unknown,
             "mic",              "Integrity",    DATA_STRING, "CRC",
             NULL);
     /* clang-format on */
@@ -145,11 +145,11 @@ static int tpms_schrader_atfpg4_callback(r_device *decoder, bitbuffer_t *bitbuff
 
 /** Encoder: inverse of tpms_schrader_atfpg4_decode().
 
-    Patches id, pressure, temperature and flags into the 0x24 pressure message,
-    recomputes the CRC-8 and re-encodes the inverted Manchester payload after
-    every sync found in the captured bits (all frames of a transmission). If the
-    capture holds no usable frame, a clean frame (preamble, sync, payload) is
-    built from the decoded fields instead.
+    Patches id, pressure, temperature, unknown, seq_num and status into the
+    0x24 pressure message, recomputes the CRC-8 and re-encodes the inverted
+    Manchester payload after every sync found in the captured bits (all frames
+    of a transmission). If the capture holds no usable frame, a clean frame
+    (preamble, sync, payload) is built from the decoded fields instead.
 */
 static int tpms_schrader_atfpg4_encode(r_device const *decoder, struct capture *cap, bitbuffer_t *out_bits)
 {
@@ -217,11 +217,11 @@ static int tpms_schrader_atfpg4_encode(r_device const *decoder, struct capture *
         b[6]   = (uint8_t)(t < 0 ? 0 : t > 0xff ? 0xff : t);
         encoder_set_dbl(cap, "temperature_C", b[6] - 52.0);
     }
-    if (encoder_field_int(cap, "flags1", &v))
+    if (encoder_field_int(cap, "unknown", &v))
         b[7] = (uint8_t)v;
-    if (encoder_field_int(cap, "flags2", &v))
+    if (encoder_field_int(cap, "seq_num", &v))
         b[8] = (uint8_t)v;
-    if (encoder_field_int(cap, "flags3", &v))
+    if (encoder_field_int(cap, "status", &v))
         b[9] = (uint8_t)v;
     b[10] = crc8(b, ATFPG4_MSG_LEN - 1, 0x2f, 0xaa);
 
@@ -252,9 +252,9 @@ static char const *const output_fields[] = {
         "id",
         "pressure_bar",
         "temperature_C",
-        "flags1",
-        "flags2",
-        "flags3",
+        "seq_num",
+        "status",
+        "unknown",
         "mic",
         NULL,
 };
