@@ -27,7 +27,7 @@ Hyundai WS SENZOR Remote Temperature Sensor.
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 #define WS_PACKETLEN 24

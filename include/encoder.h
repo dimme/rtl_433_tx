@@ -9,8 +9,8 @@
     (at your option) any later version.
 */
 
-#ifndef INCLUDE_R_ENCODER_H_
-#define INCLUDE_R_ENCODER_H_
+#ifndef INCLUDE_ENCODER_H_
+#define INCLUDE_ENCODER_H_
 
 #include "capture.h"
 #include "r_device.h"
@@ -89,4 +89,4 @@ unsigned encoder_manchester_encode(uint8_t *row, unsigned start, uint8_t const *
 /// @return the next bit position after the encoded data.
 unsigned encoder_diff_manchester_encode(uint8_t *row, unsigned start, int *prev, uint8_t const *data, unsigned nbits);
 
-#endif /* INCLUDE_R_ENCODER_H_ */
+#endif /* INCLUDE_ENCODER_H_ */

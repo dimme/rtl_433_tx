@@ -28,7 +28,7 @@ The pressure seems to be 1/4 PSI offset by -7 PSI (i.e. 28 raw = 0 PSI).
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 #include <stdlib.h>
 

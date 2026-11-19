@@ -9,7 +9,7 @@
     (at your option) any later version.
 */
 
-#include "r_encoder.h"
+#include "encoder.h"
 #include "pulse_tx.h"
 #include "decoder_util.h"
 #include <string.h>

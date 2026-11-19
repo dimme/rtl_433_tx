@@ -27,7 +27,7 @@ completely wrong values.
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int oregon_scientific_sl109h_callback(r_device *decoder, bitbuffer_t *bitbuffer)

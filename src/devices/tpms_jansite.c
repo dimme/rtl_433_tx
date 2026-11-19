@@ -28,7 +28,7 @@ Data layout (nibbles):
 */
 
 #include "decoder.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <stdlib.h>
 #include <math.h>
 

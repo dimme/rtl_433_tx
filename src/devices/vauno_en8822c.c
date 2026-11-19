@@ -47,7 +47,7 @@ Sample Data:
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int vauno_en8822c_decode(r_device *decoder, bitbuffer_t *bitbuffer)

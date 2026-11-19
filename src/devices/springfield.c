@@ -31,7 +31,7 @@ Actually 37 bits for all but last transmission which is 36 bits.
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int springfield_decode(r_device *decoder, bitbuffer_t *bitbuffer)

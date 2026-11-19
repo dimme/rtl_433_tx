@@ -11,7 +11,7 @@ decoder source; both SoapySDR-HackRF-TX and IQ-file output paths; verify builds 
 ## Architecture
 - Capture JSON format (`capture.[ch]`): metadata + pulses (µs) + raw bits + decoded fields (text).
 - Pulse TX (`pulse_tx.[ch]`): bits→pulses inverse slicers + pulse_data→IQ synth (cu8/cs16/cf32).
-- Encoder framework (`r_encoder.[ch]`): find device, rebuild via `encode_fn` or generic replay,
+- Encoder framework (`encoder.[ch]`): find device, rebuild via `encode_fn` or generic replay,
   decode-verify harness.
 - Per-device `encode_fn` hook on `r_device` (Toyota TPMS implemented as reference).
 - SDR TX (`sdr_tx.[ch]`): SoapySDR CF32 transmit path (HackRF).
@@ -21,7 +21,7 @@ decoder source; both SoapySDR-HackRF-TX and IQ-file output paths; verify builds 
 - [x] Baseline build verified.
 - [x] Modulator + inverse slicers + IQ writers (`pulse_tx.c`).
 - [x] Capture JSON format read/write (`capture.c`).
-- [x] Encoder framework + verify harness (`r_encoder.c`).
+- [x] Encoder framework + verify harness (`encoder.c`).
 - [x] Toyota TPMS encoder (`devices/tpms_toyota.c`).
 - [x] SoapySDR HackRF TX (`sdr_tx.c`).
 - [x] Config fields (`rtl_433.h`): capture_filename/file, tx_infile/outfile, tx_edits.

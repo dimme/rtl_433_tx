@@ -39,7 +39,7 @@ With fresh batteries and button pressed:
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int rftech_callback(r_device *decoder, bitbuffer_t *bitbuffer)

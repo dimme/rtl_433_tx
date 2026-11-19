@@ -75,7 +75,7 @@ Format for Winddirection & Windgust:
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>

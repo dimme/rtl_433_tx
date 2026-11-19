@@ -48,7 +48,7 @@ Data layout {81} 10 x 8 (Gen2):
 */
 
 #include "decoder.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <stdlib.h>
 #include <math.h>
 

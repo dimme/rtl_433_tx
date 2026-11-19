@@ -36,7 +36,7 @@ Data layout:
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int ts_ft002_decoder(r_device *decoder, bitbuffer_t *bitbuffer)

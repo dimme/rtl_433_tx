@@ -60,7 +60,7 @@
 #include "timer.h"
 #include "rtl_433_devices.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include "pulse_tx.h"
 #include "sdr_tx.h"
 

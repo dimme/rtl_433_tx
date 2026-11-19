@@ -48,7 +48,7 @@ device, see fineoffset.c.
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int wg_pb12v1_decode(r_device *decoder, bitbuffer_t *bitbuffer)

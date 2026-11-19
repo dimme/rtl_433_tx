@@ -13,7 +13,7 @@
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 /** @fn int infactory_decode(r_device *decoder, bitbuffer_t *bitbuffer)

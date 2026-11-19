@@ -51,7 +51,7 @@ e.g.:
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int auriol_afw2a1_decode(r_device *decoder, bitbuffer_t *bitbuffer)

@@ -43,7 +43,7 @@ Layout appears to be:
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int maverick_et73_decode(r_device *decoder, bitbuffer_t *bitbuffer)

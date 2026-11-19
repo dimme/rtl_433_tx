@@ -69,7 +69,7 @@ not fit into 8 bits (that is for speeds above 93 kph on my tires).
 */
 
 #include "decoder.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <stdlib.h>
 #include <math.h>
 

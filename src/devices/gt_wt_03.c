@@ -68,7 +68,7 @@ Battery voltages:
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static uint8_t chk_rollbyte(uint8_t const message[], unsigned bytes, uint16_t gen)

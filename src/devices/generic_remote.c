@@ -19,7 +19,7 @@ Tested devices:
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <stdint.h>
 
 static int generic_remote_callback(r_device *decoder, bitbuffer_t *bitbuffer)

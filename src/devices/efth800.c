@@ -43,7 +43,7 @@ The sensor sends messages at intervals of about 57-58 seconds.
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int eurochron_efth800_decode(r_device *decoder, bitbuffer_t *bitbuffer)

@@ -56,7 +56,7 @@ There is also a 12 byte message type 0x27 with the same CRC, meaning unknown, no
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

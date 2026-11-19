@@ -128,7 +128,7 @@ add_library(r_433 STATIC
     pulse_slicer.c
     pulse_tx.c
     capture.c
-    r_encoder.c
+    encoder.c
     r_api.c
     r_flow.c
     r_util.c

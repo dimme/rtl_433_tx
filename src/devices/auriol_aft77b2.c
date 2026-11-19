@@ -49,7 +49,7 @@ Bitbuffer example from rtl_433 -a:
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 #define GEN 0x83

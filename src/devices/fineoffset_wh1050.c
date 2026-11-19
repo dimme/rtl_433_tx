@@ -14,7 +14,7 @@
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 #define TYPE_OOK 1
 #define TYPE_FSK 2

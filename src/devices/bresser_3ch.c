@@ -38,7 +38,7 @@ The data is grouped in 5 bytes / 10 nibbles
 */
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int bresser_3ch_decode(r_device *decoder, bitbuffer_t *bitbuffer)

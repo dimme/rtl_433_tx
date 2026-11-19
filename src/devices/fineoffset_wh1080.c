@@ -111,7 +111,7 @@ so you can see -sometimes- some little difference between module's output and LC
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 #include <stdio.h>
 

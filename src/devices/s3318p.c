@@ -59,7 +59,7 @@ Random Code / Device ID: (Nibble 1)
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 
 static int s3318p_callback(r_device *decoder, bitbuffer_t *bitbuffer)

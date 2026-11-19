@@ -92,7 +92,7 @@ Addition of TX141W and TX145wsdth:
 
 #include "decoder.h"
 #include "capture.h"
-#include "r_encoder.h"
+#include "encoder.h"
 #include <math.h>
 #include <string.h>
 
