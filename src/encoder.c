@@ -20,6 +20,7 @@ static void encoder_sink_fn(r_device *dev, data_t *data)
 {
     capture_t *out = dev->output_ctx;
     capture_fields_from_data(out, data);
+    data_free(data);
 }
 
 int encoder_decode_once(r_device const *dev, bitbuffer_t *bits, capture_t *out)
